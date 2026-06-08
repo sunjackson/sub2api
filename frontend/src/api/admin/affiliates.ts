@@ -49,6 +49,7 @@ export interface AffiliateInviteRecord {
 export interface AffiliateRebateRecord {
   order_id: number
   out_trade_no: string
+  rebate_type: string
   inviter_id: number
   inviter_email: string
   inviter_username: string

@@ -436,7 +436,7 @@ LEFT JOIN users u ON u.id = ua.user_id
 LEFT JOIN user_affiliate_ledger ual
        ON ual.user_id = $1
       AND ual.source_user_id = ua.user_id
-      AND ual.action = 'accrue'
+      AND ual.action IN ('accrue', 'registration_reward')
 WHERE ua.inviter_id = $1
 GROUP BY ua.user_id, u.email, u.username, ua.created_at
 ORDER BY ua.created_at DESC
@@ -505,7 +505,7 @@ JOIN user_affiliates inviter_aff ON inviter_aff.user_id = ua.inviter_id
 LEFT JOIN user_affiliate_ledger ual
        ON ual.user_id = ua.inviter_id
       AND ual.source_user_id = ua.user_id
-      AND ual.action = 'accrue'
+      AND ual.action IN ('accrue', 'registration_reward')
 `+where+`
 GROUP BY ua.inviter_id, inviter.email, inviter.username, ua.user_id, invitee.email, invitee.username, inviter_aff.aff_code, ua.created_at
 `+orderBy+`
@@ -543,15 +543,17 @@ func (r *affiliateRepository) ListAffiliateRebateRecords(ctx context.Context, fi
 	client := clientFromContext(ctx, r.client)
 	where, args := buildAffiliateRecordWhere(filter, "ual.created_at", []string{
 		"inviter.email", "inviter.username", "invitee.email", "invitee.username",
-		"po.id::text", "po.out_trade_no", "po.payment_type", "po.status",
+		"po.id::text", "po.out_trade_no", "po.payment_type", "po.status", "ual.action", "ual.id::text",
 	})
 	baseJoin := `
 FROM user_affiliate_ledger ual
-JOIN payment_orders po ON po.id = ual.source_order_id
+LEFT JOIN payment_orders po ON po.id = ual.source_order_id
 JOIN users invitee ON invitee.id = ual.source_user_id
 JOIN users inviter ON inviter.id = ual.user_id
-WHERE ual.action = 'accrue'
-  AND ual.source_order_id IS NOT NULL`
+WHERE (
+  (ual.action = 'accrue' AND ual.source_order_id IS NOT NULL)
+  OR ual.action = 'registration_reward'
+)`
 	if where != "" {
 		where = strings.Replace(where, "WHERE ", " AND ", 1)
 	}
@@ -562,31 +564,32 @@ WHERE ual.action = 'accrue'
 	}
 
 	orderBy := buildAffiliateRecordOrderBy(filter, map[string]string{
-		"order":         "po.id",
+		"order":         "COALESCE(po.id, 0)",
 		"inviter":       "inviter.email",
 		"invitee":       "invitee.email",
-		"order_amount":  "po.amount",
-		"pay_amount":    "po.pay_amount",
+		"order_amount":  "COALESCE(po.amount, 0)",
+		"pay_amount":    "COALESCE(po.pay_amount, 0)",
 		"rebate_amount": "ual.amount",
-		"payment_type":  "po.payment_type",
-		"order_status":  "po.status",
+		"payment_type":  "COALESCE(po.payment_type, ual.action)",
+		"order_status":  "COALESCE(po.status, 'completed')",
 		"created_at":    "ual.created_at",
 	}, "ual.created_at")
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	rows, err := client.QueryContext(ctx, `
-SELECT po.id,
-       po.out_trade_no,
+SELECT COALESCE(po.id, 0),
+       COALESCE(po.out_trade_no, ''),
+       ual.action,
        ual.user_id,
        COALESCE(inviter.email, ''),
        COALESCE(inviter.username, ''),
        ual.source_user_id,
        COALESCE(invitee.email, ''),
        COALESCE(invitee.username, ''),
-       po.amount::double precision,
-       po.pay_amount::double precision,
+       COALESCE(po.amount, 0)::double precision,
+       COALESCE(po.pay_amount, 0)::double precision,
        ual.amount::double precision,
-       po.payment_type,
-       po.status,
+       COALESCE(po.payment_type, ual.action),
+       COALESCE(po.status, 'completed'),
        ual.created_at
 `+baseJoin+where+`
 `+orderBy+`
@@ -602,6 +605,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 		if err := rows.Scan(
 			&item.OrderID,
 			&item.OutTradeNo,
+			&item.RebateType,
 			&item.InviterID,
 			&item.InviterEmail,
 			&item.InviterUsername,

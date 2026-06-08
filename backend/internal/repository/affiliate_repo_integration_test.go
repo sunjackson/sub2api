@@ -186,6 +186,48 @@ LIMIT 1`, inviter.ID)
 	require.InDelta(t, 2.5, frozenAfter, 1e-9)
 	require.InDelta(t, 3.75, historyAfter, 1e-9)
 	require.NoError(t, rows.Err())
+
+	invitees, err := repo.ListInvitees(txCtx, inviter.ID, 10)
+	require.NoError(t, err)
+	require.Len(t, invitees, 1)
+	require.Equal(t, invitee.ID, invitees[0].UserID)
+	require.InDelta(t, 4.56, invitees[0].TotalRebate, 1e-9)
+
+	inviteRecords, totalInviteRecords, err := repo.ListAffiliateInviteRecords(txCtx, service.AffiliateRecordFilter{
+		Page:     1,
+		PageSize: 10,
+		Search:   invitee.Email,
+		SortBy:   "created_at",
+		SortDesc: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), totalInviteRecords)
+	require.Len(t, inviteRecords, 1)
+	require.Equal(t, inviter.ID, inviteRecords[0].InviterID)
+	require.Equal(t, invitee.ID, inviteRecords[0].InviteeID)
+	require.InDelta(t, 4.56, inviteRecords[0].TotalRebate, 1e-9)
+
+	rebateRecords, totalRebateRecords, err := repo.ListAffiliateRebateRecords(txCtx, service.AffiliateRecordFilter{
+		Page:     1,
+		PageSize: 10,
+		Search:   invitee.Email,
+		SortBy:   "created_at",
+		SortDesc: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), totalRebateRecords)
+	require.Len(t, rebateRecords, 1)
+	registrationRewardRecord := rebateRecords[0]
+	require.Equal(t, int64(0), registrationRewardRecord.OrderID)
+	require.Empty(t, registrationRewardRecord.OutTradeNo)
+	require.Equal(t, "registration_reward", registrationRewardRecord.RebateType)
+	require.Equal(t, inviter.ID, registrationRewardRecord.InviterID)
+	require.Equal(t, invitee.ID, registrationRewardRecord.InviteeID)
+	require.InDelta(t, 0.0, registrationRewardRecord.OrderAmount, 1e-9)
+	require.InDelta(t, 0.0, registrationRewardRecord.PayAmount, 1e-9)
+	require.InDelta(t, 4.56, registrationRewardRecord.RebateAmount, 1e-9)
+	require.Equal(t, "registration_reward", registrationRewardRecord.PaymentType)
+	require.Equal(t, "completed", registrationRewardRecord.OrderStatus)
 }
 
 // TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction guards the

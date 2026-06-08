@@ -160,6 +160,7 @@ type AffiliateInviteRecord struct {
 type AffiliateRebateRecord struct {
 	OrderID         int64     `json:"order_id"`
 	OutTradeNo      string    `json:"out_trade_no"`
+	RebateType      string    `json:"rebate_type"`
 	InviterID       int64     `json:"inviter_id"`
 	InviterEmail    string    `json:"inviter_email"`
 	InviterUsername string    `json:"inviter_username"`

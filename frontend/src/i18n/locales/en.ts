@@ -1742,7 +1742,7 @@ export default {
 
     affiliates: {
       invitesDescription: 'View site-wide inviter and invitee relationships',
-      rebatesDescription: 'View recharge orders that generated affiliate rebates',
+      rebatesDescription: 'View recharge rebates and invite signup rewards',
       transfersDescription: 'View affiliate quota transfers into account balance',
       errors: {
         loadFailed: 'Failed to load affiliate records'
@@ -1763,6 +1763,9 @@ export default {
         rebateAmount: 'Rebate Amount',
         paymentType: 'Payment Method',
         orderStatus: 'Order Status',
+        registrationReward: 'Signup Reward',
+        rewardCredited: 'Credited',
+        noOrder: 'No Order',
         transferAmount: 'Transfer Amount',
         balanceAfter: 'Balance After',
         availableQuotaAfter: 'Available After',

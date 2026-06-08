@@ -1763,7 +1763,7 @@ export default {
 
     affiliates: {
       invitesDescription: '查看全站邀请关系和被邀请用户累计返利',
-      rebatesDescription: '查看每一笔产生返利的充值订单',
+      rebatesDescription: '查看每一笔充值返利和邀请注册奖励',
       transfersDescription: '查看返利额度转入账户余额的提取流水',
       errors: {
         loadFailed: '加载邀请返利记录失败'
@@ -1784,6 +1784,9 @@ export default {
         rebateAmount: '返利金额',
         paymentType: '支付方式',
         orderStatus: '订单状态',
+        registrationReward: '注册奖励',
+        rewardCredited: '已发放',
+        noOrder: '无订单',
         transferAmount: '提取金额',
         balanceAfter: '提取后余额',
         availableQuotaAfter: '提取后可提',
