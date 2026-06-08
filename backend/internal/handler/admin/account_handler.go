@@ -953,6 +953,29 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	return updatedAccount, "", nil
 }
 
+func shouldRefreshTokenForStatusCheck(account *service.Account) bool {
+	return account != nil && account.Type == service.AccountTypeOAuth
+}
+
+func (h *AccountHandler) refreshAccountTokenForStatusCheck(ctx context.Context, account *service.Account) (*service.Account, bool, string, error) {
+	if !shouldRefreshTokenForStatusCheck(account) {
+		return account, false, "", nil
+	}
+
+	updatedAccount, warning, err := h.refreshSingleAccount(ctx, account)
+	if err != nil {
+		statusMessage := "token refresh failed: " + err.Error()
+		if setErr := h.adminService.SetAccountError(ctx, account.ID, statusMessage); setErr != nil {
+			return nil, true, "", fmt.Errorf("%s; failed to mark account error: %w", statusMessage, setErr)
+		}
+		return nil, true, "", fmt.Errorf("token refresh failed: %w", err)
+	}
+	if updatedAccount == nil {
+		updatedAccount = account
+	}
+	return updatedAccount, true, warning, nil
+}
+
 // Refresh handles refreshing account credentials
 // POST /api/v1/admin/accounts/:id/refresh
 func (h *AccountHandler) Refresh(c *gin.Context) {
@@ -1269,8 +1292,20 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 	successCount := 0
 	failedCount := 0
 	rateLimitedCount := 0
+	tokenRefreshedCount := 0
+	tokenRefreshFailedCount := 0
 	errors := make([]gin.H, 0)
+	warnings := make([]gin.H, 0)
 	results := make([]gin.H, 0, len(accountIDs))
+	recordTokenRefreshSuccessLocked := func(accountID int64, warning string) {
+		tokenRefreshedCount++
+		if warning != "" {
+			warnings = append(warnings, gin.H{
+				"account_id": accountID,
+				"warning":    warning,
+			})
+		}
+	}
 
 	for _, id := range accountIDs {
 		if !foundIDs[id] {
@@ -1293,18 +1328,45 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 			continue
 		}
 		g.Go(func() error {
+			_, tokenRefreshAttempted, warning, refreshErr := h.refreshAccountTokenForStatusCheck(gctx, acc)
+			if refreshErr != nil {
+				mu.Lock()
+				failedCount++
+				tokenRefreshFailedCount++
+				errors = append(errors, gin.H{
+					"account_id": acc.ID,
+					"error":      refreshErr.Error(),
+				})
+				results = append(results, gin.H{
+					"account_id":           acc.ID,
+					"success":              false,
+					"token_refresh_failed": true,
+					"error":                refreshErr.Error(),
+				})
+				mu.Unlock()
+				return nil
+			}
+
+			if h.accountUsageService != nil {
+				h.accountUsageService.InvalidateAccountUsageCache(acc.ID)
+			}
+
 			usage, err := h.accountUsageService.GetUsage(gctx, acc.ID, true)
 			if err != nil {
 				mu.Lock()
 				failedCount++
+				if tokenRefreshAttempted {
+					recordTokenRefreshSuccessLocked(acc.ID, warning)
+				}
 				errors = append(errors, gin.H{
 					"account_id": acc.ID,
 					"error":      err.Error(),
 				})
 				results = append(results, gin.H{
-					"account_id": acc.ID,
-					"success":    false,
-					"error":      err.Error(),
+					"account_id":      acc.ID,
+					"success":         false,
+					"token_refreshed": tokenRefreshAttempted,
+					"error":           err.Error(),
 				})
 				mu.Unlock()
 				return nil
@@ -1316,14 +1378,18 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 				if err := h.adminService.SetAccountRateLimited(gctx, acc.ID, *resetAt); err != nil {
 					mu.Lock()
 					failedCount++
+					if tokenRefreshAttempted {
+						recordTokenRefreshSuccessLocked(acc.ID, warning)
+					}
 					errors = append(errors, gin.H{
 						"account_id": acc.ID,
 						"error":      err.Error(),
 					})
 					results = append(results, gin.H{
-						"account_id": acc.ID,
-						"success":    false,
-						"error":      err.Error(),
+						"account_id":      acc.ID,
+						"success":         false,
+						"token_refreshed": tokenRefreshAttempted,
+						"error":           err.Error(),
 					})
 					mu.Unlock()
 					return nil
@@ -1331,10 +1397,11 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 			}
 
 			result := gin.H{
-				"account_id":   acc.ID,
-				"success":      true,
-				"rate_limited": rateLimited,
-				"windows":      windows,
+				"account_id":      acc.ID,
+				"success":         true,
+				"rate_limited":    rateLimited,
+				"token_refreshed": tokenRefreshAttempted,
+				"windows":         windows,
 			}
 			if resetAt != nil {
 				result["rate_limit_reset_at"] = resetAt.UTC().Format(time.RFC3339)
@@ -1342,6 +1409,9 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 
 			mu.Lock()
 			successCount++
+			if tokenRefreshAttempted {
+				recordTokenRefreshSuccessLocked(acc.ID, warning)
+			}
 			if rateLimited {
 				rateLimitedCount++
 			}
@@ -1357,12 +1427,15 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"total":        len(accountIDs),
-		"success":      successCount,
-		"failed":       failedCount,
-		"rate_limited": rateLimitedCount,
-		"errors":       errors,
-		"results":      results,
+		"total":                len(accountIDs),
+		"success":              successCount,
+		"failed":               failedCount,
+		"rate_limited":         rateLimitedCount,
+		"token_refreshed":      tokenRefreshedCount,
+		"token_refresh_failed": tokenRefreshFailedCount,
+		"errors":               errors,
+		"warnings":             warnings,
+		"results":              results,
 	})
 }
 

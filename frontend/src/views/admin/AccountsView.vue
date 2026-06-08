@@ -455,7 +455,7 @@
           </div>
         </div>
 
-        <div :class="['grid gap-2 text-center', bulkOperationProgress.type === 'status-check' ? 'grid-cols-3' : 'grid-cols-2']">
+        <div :class="['grid gap-2 text-center', bulkOperationProgress.type === 'status-check' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2']">
           <div class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
             <div class="text-lg font-semibold text-gray-900 dark:text-white">{{ bulkOperationProgress.success }}</div>
             <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkOperationProgress.success') }}</div>
@@ -463,6 +463,10 @@
           <div class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
             <div class="text-lg font-semibold text-red-600 dark:text-red-300">{{ bulkOperationProgress.failed }}</div>
             <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkOperationProgress.failed') }}</div>
+          </div>
+          <div v-if="bulkOperationProgress.type === 'status-check'" class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
+            <div class="text-lg font-semibold text-primary-600 dark:text-primary-300">{{ bulkOperationProgress.tokenRefreshed }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkOperationProgress.tokenRefreshed') }}</div>
           </div>
           <div v-if="bulkOperationProgress.type === 'status-check'" class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
             <div class="text-lg font-semibold text-amber-600 dark:text-amber-300">{{ bulkOperationProgress.rateLimited }}</div>
@@ -579,6 +583,7 @@ type BulkOperationAggregate = {
   success: number
   failed: number
   rateLimited: number
+  tokenRefreshed: number
   successIds: number[]
   failedIds: number[]
   errors: Array<{ account_id: number; error: string }>
@@ -656,6 +661,7 @@ const bulkOperationProgress = reactive<{
   success: number
   failed: number
   rateLimited: number
+  tokenRefreshed: number
   currentBatch: number
   batchCount: number
   errorMessage: string
@@ -669,6 +675,7 @@ const bulkOperationProgress = reactive<{
   success: 0,
   failed: 0,
   rateLimited: 0,
+  tokenRefreshed: 0,
   currentBatch: 0,
   batchCount: 0,
   errorMessage: ''
@@ -1443,6 +1450,7 @@ const resetBulkOperationProgress = (type: BulkOperationType, total: number) => {
   bulkOperationProgress.success = 0
   bulkOperationProgress.failed = 0
   bulkOperationProgress.rateLimited = 0
+  bulkOperationProgress.tokenRefreshed = 0
   bulkOperationProgress.currentBatch = 0
   bulkOperationProgress.batchCount = 0
   bulkOperationProgress.errorMessage = ''
@@ -1452,6 +1460,7 @@ const createBulkOperationAggregate = (): BulkOperationAggregate => ({
   success: 0,
   failed: 0,
   rateLimited: 0,
+  tokenRefreshed: 0,
   successIds: [],
   failedIds: [],
   errors: []
@@ -1540,6 +1549,11 @@ const mergeBulkOperationResult = (
   } else if (Array.isArray(result.results)) {
     aggregate.rateLimited += result.results.filter(item => typeof item === 'object' && item !== null && (item as any).rate_limited === true).length
   }
+  if (typeof result.token_refreshed === 'number') {
+    aggregate.tokenRefreshed += result.token_refreshed
+  } else if (Array.isArray(result.results)) {
+    aggregate.tokenRefreshed += result.results.filter(item => typeof item === 'object' && item !== null && (item as any).token_refreshed === true).length
+  }
   appendUniqueIds(aggregate.successIds, extractSuccessIdsFromResult(result, chunkIds))
   appendUniqueIds(aggregate.failedIds, extractFailedIdsFromResult(result))
   aggregate.errors.push(...collectBulkOperationErrors(result))
@@ -1550,6 +1564,7 @@ const updateBulkOperationProgressFromAggregate = (aggregate: BulkOperationAggreg
   bulkOperationProgress.success = aggregate.success
   bulkOperationProgress.failed = aggregate.failed
   bulkOperationProgress.rateLimited = aggregate.rateLimited
+  bulkOperationProgress.tokenRefreshed = aggregate.tokenRefreshed
 }
 
 const resolveBulkOperationAccountIds = async (target: AccountBatchOperationTarget) => {
@@ -1596,7 +1611,8 @@ const completeBulkOperation = async (
     appStore.showError(t('admin.accounts.bulkActions.checkStatusPartial', {
       success: aggregate.success,
       failed: aggregate.failed,
-      rateLimited: aggregate.rateLimited
+      rateLimited: aggregate.rateLimited,
+      tokenRefreshed: aggregate.tokenRefreshed
     }))
     if (target.mode === 'selected') {
       setSelectedIds(aggregate.failedIds.length > 0 ? aggregate.failedIds : target.accountIds)
@@ -1604,7 +1620,8 @@ const completeBulkOperation = async (
   } else {
     appStore.showSuccess(t('admin.accounts.bulkActions.checkStatusSuccess', {
       count: aggregate.success,
-      rateLimited: aggregate.rateLimited
+      rateLimited: aggregate.rateLimited,
+      tokenRefreshed: aggregate.tokenRefreshed
     }))
     clearSelection()
   }

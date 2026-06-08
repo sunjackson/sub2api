@@ -3423,12 +3423,12 @@ export default {
         refreshToken: '批量刷新令牌',
         checkStatus: '批量状态检测',
         noFilteredAccounts: '当前筛选条件下没有可操作的账号',
-        checkStatusConfirm: '确定要检测选中的 {count} 个账号状态吗？检测会主动刷新用量，并将已达到 5 小时/7 天限额的账号同步为限流中。',
-        checkStatusFilteredConfirm: '未选择账号，将检测当前筛选出的 {count} 个账号状态。检测会主动刷新用量，并将已达到 5 小时/7 天限额的账号同步为限流中。是否继续？',
+        checkStatusConfirm: '确定要检测选中的 {count} 个账号状态吗？检测会先刷新 OAuth 令牌，再主动刷新用量，并将已达到 5 小时/7 天限额的账号同步为限流中；令牌刷新失败的账号会被标记为错误。',
+        checkStatusFilteredConfirm: '未选择账号，将检测当前筛选出的 {count} 个账号状态。检测会先刷新 OAuth 令牌，再主动刷新用量，并将已达到 5 小时/7 天限额的账号同步为限流中；令牌刷新失败的账号会被标记为错误。是否继续？',
         resetStatusSuccess: '已成功重置 {count} 个账号状态',
         refreshTokenSuccess: '已成功刷新 {count} 个账号令牌',
-        checkStatusSuccess: '已检测 {count} 个账号，其中 {rateLimited} 个已同步为限流中',
-        checkStatusPartial: '状态检测部分完成：成功 {success} 个，失败 {failed} 个，已同步限流 {rateLimited} 个',
+        checkStatusSuccess: '已检测 {count} 个账号，刷新令牌 {tokenRefreshed} 个，其中 {rateLimited} 个已同步为限流中',
+        checkStatusPartial: '状态检测部分完成：成功 {success} 个，失败 {failed} 个，刷新令牌 {tokenRefreshed} 个，已同步限流 {rateLimited} 个',
         partialSuccess: '操作部分完成：{success} 成功，{failed} 失败'
       },
       bulkOperationProgress: {
@@ -3443,6 +3443,7 @@ export default {
         processed: '已处理 {current}/{total}',
         success: '成功',
         failed: '失败',
+        tokenRefreshed: '令牌刷新',
         rateLimited: '限流',
         runningButton: '执行中...'
       },

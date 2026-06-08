@@ -661,10 +661,14 @@ export interface BatchOperationResult {
 
 export interface BatchStatusCheckResult extends BatchOperationResult {
   rate_limited: number
+  token_refreshed?: number
+  token_refresh_failed?: number
   results: Array<{
     account_id: number
     success: boolean
     rate_limited?: boolean
+    token_refreshed?: boolean
+    token_refresh_failed?: boolean
     rate_limit_reset_at?: string
     windows?: string[]
     error?: string
@@ -702,7 +706,7 @@ export async function batchClearError(accountIds: number[]): Promise<BatchOperat
 }
 
 /**
- * Batch check account usage status and sync exhausted windows to account rate limit state.
+ * Batch refresh OAuth tokens, check account usage status, and sync exhausted windows to account rate limit state.
  * @param target - Account IDs or filter target
  * @returns Batch status check result
  */

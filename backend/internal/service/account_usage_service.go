@@ -128,6 +128,17 @@ func NewUsageCache() *UsageCache {
 	return &UsageCache{}
 }
 
+// InvalidateAccountUsageCache clears active status/usage caches for one account.
+func (s *AccountUsageService) InvalidateAccountUsageCache(accountID int64) {
+	if s == nil || s.cache == nil {
+		return
+	}
+	s.cache.apiCache.Delete(accountID)
+	s.cache.windowStatsCache.Delete(accountID)
+	s.cache.antigravityCache.Delete(accountID)
+	s.cache.openAIProbeCache.Delete(accountID)
+}
+
 // WindowStats 窗口期统计
 //
 // cost: 账号口径费用（total_cost * account_rate_multiplier）

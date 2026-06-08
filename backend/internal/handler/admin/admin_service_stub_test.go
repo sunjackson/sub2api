@@ -24,6 +24,7 @@ type stubAdminService struct {
 	updatedProxyIDs      []int64
 	updatedProxies       []*service.UpdateProxyInput
 	testedProxyIDs       []int64
+	accountErrors        map[int64]string
 	getUserErr           error
 	createAccountErr     error
 	updateAccountErr     error
@@ -398,6 +399,12 @@ func (s *stubAdminService) ClearAccountError(ctx context.Context, id int64) (*se
 }
 
 func (s *stubAdminService) SetAccountError(ctx context.Context, id int64, errorMsg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.accountErrors == nil {
+		s.accountErrors = make(map[int64]string)
+	}
+	s.accountErrors[id] = errorMsg
 	return nil
 }
 

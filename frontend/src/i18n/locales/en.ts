@@ -3276,12 +3276,12 @@ export default {
         refreshToken: 'Refresh Token',
         checkStatus: 'Check Status',
         noFilteredAccounts: 'No accounts match the current filters',
-        checkStatusConfirm: 'Check status for {count} selected account(s)? This actively refreshes usage and syncs exhausted 5-hour/7-day windows to rate-limited status.',
-        checkStatusFilteredConfirm: 'No accounts are selected. Check status for the {count} account(s) matching the current filters? This actively refreshes usage and syncs exhausted 5-hour/7-day windows to rate-limited status.',
+        checkStatusConfirm: 'Check status for {count} selected account(s)? This refreshes OAuth tokens first, then refreshes usage and syncs exhausted 5-hour/7-day windows to rate-limited status. Token refresh failures are marked as account errors.',
+        checkStatusFilteredConfirm: 'No accounts are selected. Check status for the {count} account(s) matching the current filters? This refreshes OAuth tokens first, then refreshes usage and syncs exhausted 5-hour/7-day windows to rate-limited status. Token refresh failures are marked as account errors.',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
-        checkStatusSuccess: 'Checked {count} account(s); {rateLimited} synced to rate-limited status',
-        checkStatusPartial: 'Status check partially completed: {success} succeeded, {failed} failed, {rateLimited} synced to rate-limited status',
+        checkStatusSuccess: 'Checked {count} account(s); refreshed {tokenRefreshed} token(s); {rateLimited} synced to rate-limited status',
+        checkStatusPartial: 'Status check partially completed: {success} succeeded, {failed} failed, {tokenRefreshed} token(s) refreshed, {rateLimited} synced to rate-limited status',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
       },
       bulkOperationProgress: {
@@ -3296,6 +3296,7 @@ export default {
         processed: 'Processed {current}/{total}',
         success: 'Success',
         failed: 'Failed',
+        tokenRefreshed: 'Tokens refreshed',
         rateLimited: 'Rate-limited',
         runningButton: 'Running...'
       },
