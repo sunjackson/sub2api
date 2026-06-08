@@ -24,7 +24,9 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       delete: vi.fn(),
+      batchDelete: vi.fn(),
       batchClearError: vi.fn(),
+      batchStatusCheck: vi.fn(),
       batchRefresh: vi.fn(),
       toggleSchedulable: vi.fn()
     },
@@ -75,13 +77,24 @@ const DataTableStub = {
 
 const AccountBulkActionsBarStub = {
   props: ['selectedIds'],
-  emits: ['edit-filtered'],
-  template: '<button data-test="edit-filtered" @click="$emit(\'edit-filtered\')">edit filtered</button>'
+  emits: ['edit-filtered', 'check-status', 'delete'],
+  template: `
+    <div>
+      <button data-test="edit-filtered" @click="$emit('edit-filtered')">edit filtered</button>
+      <button data-test="check-status" @click="$emit('check-status')">check status</button>
+      <button data-test="bulk-delete" @click="$emit('delete')">delete</button>
+    </div>
+  `
 }
 
 const BulkEditAccountModalStub = {
   props: ['show', 'target'],
   template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
+}
+
+const ConfirmDialogStub = {
+  props: ['show', 'title', 'message', 'danger'],
+  template: '<div data-test="confirm-dialog" :data-show="String(show)" :data-title="title" :data-message="message" :data-danger="String(!!danger)"></div>'
 }
 
 describe('admin AccountsView bulk edit scope', () => {
@@ -121,7 +134,7 @@ describe('admin AccountsView bulk edit scope', () => {
           },
           DataTable: DataTableStub,
           Pagination: true,
-          ConfirmDialog: true,
+          ConfirmDialog: ConfirmDialogStub,
           AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
           AccountTableFilters: { template: '<div></div>' },
           AccountBulkActionsBar: AccountBulkActionsBarStub,
@@ -186,7 +199,7 @@ describe('admin AccountsView bulk edit scope', () => {
           },
           DataTable: DataTableStub,
           Pagination: true,
-          ConfirmDialog: true,
+          ConfirmDialog: ConfirmDialogStub,
           AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
           AccountTableFilters: { template: '<div></div>' },
           AccountBulkActionsBar: AccountBulkActionsBarStub,
@@ -223,5 +236,128 @@ describe('admin AccountsView bulk edit scope', () => {
       label: 'admin.accounts.columns.createdAt',
       sortable: true
     })
+  })
+
+  it('uses the themed confirm dialog for filtered bulk status checks', async () => {
+    const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    listAccounts.mockResolvedValue({
+      items: [],
+      total: 3,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: ConfirmDialogStub,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-test="check-status"]').trigger('click')
+    await flushPromises()
+
+    const visibleDialogs = wrapper
+      .findAll('[data-test="confirm-dialog"]')
+      .filter(dialog => dialog.attributes('data-show') === 'true')
+    expect(visibleDialogs).toHaveLength(1)
+    expect(visibleDialogs[0].attributes('data-title')).toBe('admin.accounts.bulkActions.checkStatus')
+    expect(visibleDialogs[0].attributes('data-message')).toBe('admin.accounts.bulkActions.checkStatusFilteredConfirm')
+    expect(nativeConfirm).not.toHaveBeenCalled()
+    nativeConfirm.mockRestore()
+  })
+
+  it('uses the themed danger confirm dialog for filtered bulk deletes', async () => {
+    const nativeConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    listAccounts.mockResolvedValue({
+      items: [],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: ConfirmDialogStub,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-test="bulk-delete"]').trigger('click')
+    await flushPromises()
+
+    const visibleDialogs = wrapper
+      .findAll('[data-test="confirm-dialog"]')
+      .filter(dialog => dialog.attributes('data-show') === 'true')
+    expect(visibleDialogs).toHaveLength(1)
+    expect(visibleDialogs[0].attributes('data-title')).toBe('admin.accounts.bulkDeleteTitle')
+    expect(visibleDialogs[0].attributes('data-message')).toBe('admin.accounts.bulkDeleteFilteredConfirm')
+    expect(visibleDialogs[0].attributes('data-danger')).toBe('true')
+    expect(nativeConfirm).not.toHaveBeenCalled()
+    nativeConfirm.mockRestore()
   })
 })

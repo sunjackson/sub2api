@@ -3284,6 +3284,21 @@ export default {
         checkStatusPartial: 'Status check partially completed: {success} succeeded, {failed} failed, {rateLimited} synced to rate-limited status',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
       },
+      bulkOperationProgress: {
+        deleteTitle: 'Bulk Delete Progress',
+        statusCheckTitle: 'Bulk Status Check Progress',
+        pending: 'Waiting to start...',
+        preparing: 'Preparing account list...',
+        running: 'Running batch {current}/{total}',
+        completed: 'Operation completed',
+        failedStatus: 'Operation failed',
+        noCloseHint: 'Keep this window open while the operation is running. You can close it after completion.',
+        processed: 'Processed {current}/{total}',
+        success: 'Success',
+        failed: 'Failed',
+        rateLimited: 'Rate-limited',
+        runningButton: 'Running...'
+      },
       bulkEdit: {
         title: 'Bulk Edit Accounts',
         selectionInfo:

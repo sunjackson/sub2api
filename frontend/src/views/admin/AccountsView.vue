@@ -391,6 +391,106 @@
         <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
       </label>
     </ConfirmDialog>
+    <ConfirmDialog
+      :show="bulkOperationConfirm.show"
+      :title="bulkOperationConfirm.title"
+      :message="bulkOperationConfirm.message"
+      :confirm-text="bulkOperationConfirm.confirmText"
+      :cancel-text="t('common.cancel')"
+      :danger="bulkOperationConfirm.danger"
+      @confirm="confirmBulkOperation"
+      @cancel="cancelBulkOperationConfirm"
+    />
+    <BaseDialog
+      :show="bulkOperationProgress.show"
+      :title="bulkOperationProgressTitle"
+      width="narrow"
+      :close-on-escape="!bulkOperationProgress.running"
+      @close="handleBulkOperationProgressClose"
+    >
+      <div class="space-y-5">
+        <div class="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+          <div
+            :class="[
+              'mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg',
+              bulkOperationProgress.type === 'delete'
+                ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300'
+                : 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
+            ]"
+          >
+            <Icon
+              :name="bulkOperationProgress.type === 'delete' ? 'trash' : 'refresh'"
+              size="sm"
+              :class="{ 'animate-spin': bulkOperationProgress.running && bulkOperationProgress.type === 'status-check' }"
+            />
+          </div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ bulkOperationProgressStatusText }}
+            </p>
+            <p v-if="bulkOperationProgress.running" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.bulkOperationProgress.noCloseHint') }}
+            </p>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
+            <span>{{ t('admin.accounts.bulkOperationProgress.processed', { current: bulkOperationProgress.processed, total: bulkOperationProgress.total }) }}</span>
+            <span class="font-medium text-gray-900 dark:text-white">{{ bulkOperationProgressPercent }}%</span>
+          </div>
+          <div class="h-2.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+            <div
+              role="progressbar"
+              :aria-valuenow="bulkOperationProgressPercent"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-label="`${bulkOperationProgressTitle}: ${bulkOperationProgressPercent}%`"
+              :class="[
+                'h-2.5 rounded-full transition-all duration-300',
+                bulkOperationProgress.type === 'delete' ? 'bg-red-600' : 'bg-primary-600'
+              ]"
+              :style="{ width: `${bulkOperationProgressPercent}%` }"
+            ></div>
+          </div>
+        </div>
+
+        <div :class="['grid gap-2 text-center', bulkOperationProgress.type === 'status-check' ? 'grid-cols-3' : 'grid-cols-2']">
+          <div class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
+            <div class="text-lg font-semibold text-gray-900 dark:text-white">{{ bulkOperationProgress.success }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkOperationProgress.success') }}</div>
+          </div>
+          <div class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
+            <div class="text-lg font-semibold text-red-600 dark:text-red-300">{{ bulkOperationProgress.failed }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkOperationProgress.failed') }}</div>
+          </div>
+          <div v-if="bulkOperationProgress.type === 'status-check'" class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-dark-800">
+            <div class="text-lg font-semibold text-amber-600 dark:text-amber-300">{{ bulkOperationProgress.rateLimited }}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkOperationProgress.rateLimited') }}</div>
+          </div>
+        </div>
+
+        <div
+          v-if="bulkOperationProgress.errorMessage"
+          class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-300"
+        >
+          {{ bulkOperationProgress.errorMessage }}
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end">
+          <button
+            type="button"
+            class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600 dark:focus:ring-offset-dark-800"
+            :disabled="bulkOperationProgress.running"
+            @click="handleBulkOperationProgressClose"
+          >
+            {{ bulkOperationProgress.running ? t('admin.accounts.bulkOperationProgress.runningButton') : t('common.close') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
   </AppLayout>
@@ -409,6 +509,7 @@ import { useTableSelection } from '@/composables/useTableSelection'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -468,6 +569,21 @@ type AccountBulkEditTarget =
       selectedPlatforms: AccountPlatform[]
       selectedTypes: AccountType[]
     }
+type AccountBatchOperationTarget =
+  | { mode: 'selected'; accountIds: number[]; count: number }
+  | { mode: 'filtered'; filters: ReturnType<typeof buildBulkEditFilterSnapshot>; count: number }
+type BulkOperationType = 'delete' | 'status-check'
+type BulkOperationPhase = 'idle' | 'preparing' | 'running' | 'done' | 'failed'
+
+type BulkOperationAggregate = {
+  success: number
+  failed: number
+  rateLimited: number
+  successIds: number[]
+  failedIds: number[]
+  errors: Array<{ account_id: number; error: string }>
+}
+
 const selPlatforms = computed<AccountPlatform[]>(() => {
   const platforms = new Set(
     accounts.value
@@ -511,6 +627,79 @@ const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
+const BULK_OPERATION_CHUNK_SIZE = 20
+const BULK_OPERATION_FETCH_PAGE_SIZE = 500
+const bulkOperationConfirm = reactive<{
+  show: boolean
+  type: BulkOperationType | null
+  title: string
+  message: string
+  confirmText: string
+  danger: boolean
+  target: AccountBatchOperationTarget | null
+}>({
+  show: false,
+  type: null,
+  title: '',
+  message: '',
+  confirmText: '',
+  danger: false,
+  target: null
+})
+const bulkOperationProgress = reactive<{
+  show: boolean
+  running: boolean
+  type: BulkOperationType | null
+  phase: BulkOperationPhase
+  total: number
+  processed: number
+  success: number
+  failed: number
+  rateLimited: number
+  currentBatch: number
+  batchCount: number
+  errorMessage: string
+}>({
+  show: false,
+  running: false,
+  type: null,
+  phase: 'idle',
+  total: 0,
+  processed: 0,
+  success: 0,
+  failed: 0,
+  rateLimited: 0,
+  currentBatch: 0,
+  batchCount: 0,
+  errorMessage: ''
+})
+const bulkOperationProgressTitle = computed(() => {
+  if (bulkOperationProgress.type === 'delete') return t('admin.accounts.bulkOperationProgress.deleteTitle')
+  if (bulkOperationProgress.type === 'status-check') return t('admin.accounts.bulkOperationProgress.statusCheckTitle')
+  return ''
+})
+const bulkOperationProgressPercent = computed(() => {
+  if (bulkOperationProgress.total <= 0) return 0
+  return Math.min(100, Math.max(0, Math.round((bulkOperationProgress.processed / bulkOperationProgress.total) * 100)))
+})
+const bulkOperationProgressStatusText = computed(() => {
+  if (bulkOperationProgress.phase === 'preparing') {
+    return t('admin.accounts.bulkOperationProgress.preparing')
+  }
+  if (bulkOperationProgress.phase === 'failed') {
+    return t('admin.accounts.bulkOperationProgress.failedStatus')
+  }
+  if (bulkOperationProgress.phase === 'done') {
+    return t('admin.accounts.bulkOperationProgress.completed')
+  }
+  if (bulkOperationProgress.batchCount > 0) {
+    return t('admin.accounts.bulkOperationProgress.running', {
+      current: bulkOperationProgress.currentBatch,
+      total: bulkOperationProgress.batchCount
+    })
+  }
+  return t('admin.accounts.bulkOperationProgress.pending')
+})
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
@@ -877,7 +1066,9 @@ const isAnyModalOpen = computed(() => {
     showStats.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
-    showTLSFingerprintProfiles.value
+    showTLSFingerprintProfiles.value ||
+    bulkOperationConfirm.show ||
+    bulkOperationProgress.show
   )
 })
 
@@ -1228,10 +1419,6 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-type AccountBatchOperationTarget =
-  | { mode: 'selected'; accountIds: number[]; count: number }
-  | { mode: 'filtered'; filters: ReturnType<typeof buildBulkEditFilterSnapshot>; count: number }
-
 const buildBulkOperationTarget = async (): Promise<AccountBatchOperationTarget | null> => {
   const accountIds = [...selIds.value]
   if (accountIds.length > 0) {
@@ -1246,34 +1433,280 @@ const buildBulkOperationTarget = async (): Promise<AccountBatchOperationTarget |
   return { mode: 'filtered', filters, count: preview.total }
 }
 
-const accountBatchTargetPayload = (target: AccountBatchOperationTarget) => (
-  target.mode === 'selected' ? target.accountIds : { filters: target.filters }
-)
+const resetBulkOperationProgress = (type: BulkOperationType, total: number) => {
+  bulkOperationProgress.show = true
+  bulkOperationProgress.running = true
+  bulkOperationProgress.type = type
+  bulkOperationProgress.phase = 'preparing'
+  bulkOperationProgress.total = total
+  bulkOperationProgress.processed = 0
+  bulkOperationProgress.success = 0
+  bulkOperationProgress.failed = 0
+  bulkOperationProgress.rateLimited = 0
+  bulkOperationProgress.currentBatch = 0
+  bulkOperationProgress.batchCount = 0
+  bulkOperationProgress.errorMessage = ''
+}
+
+const createBulkOperationAggregate = (): BulkOperationAggregate => ({
+  success: 0,
+  failed: 0,
+  rateLimited: 0,
+  successIds: [],
+  failedIds: [],
+  errors: []
+})
+
+const getBulkOperationErrorMessage = (error: unknown) => {
+  const anyError = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
+  return anyError?.response?.data?.detail || anyError?.response?.data?.message || anyError?.message || String(error)
+}
+
+const appendUniqueIds = (target: number[], ids: number[]) => {
+  const existing = new Set(target)
+  for (const id of ids) {
+    if (!existing.has(id)) {
+      target.push(id)
+      existing.add(id)
+    }
+  }
+}
+
+const extractFailedIdsFromResult = (result: Record<string, unknown>) => {
+  const failedIds = Array.isArray(result.failed_ids) ? result.failed_ids.filter((id): id is number => typeof id === 'number') : []
+  if (failedIds.length > 0) return failedIds
+  const results = Array.isArray(result.results) ? result.results : []
+  return results
+    .filter((item): item is { account_id: number; success: boolean } => {
+      return typeof item === 'object' && item !== null && typeof (item as any).account_id === 'number' && (item as any).success === false
+    })
+    .map(item => item.account_id)
+}
+
+const extractSuccessIdsFromResult = (result: Record<string, unknown>, chunkIds: number[]) => {
+  const successIds = Array.isArray(result.success_ids) ? result.success_ids.filter((id): id is number => typeof id === 'number') : []
+  if (successIds.length > 0) return successIds
+  const results = Array.isArray(result.results) ? result.results : []
+  const resultSuccessIds = results
+    .filter((item): item is { account_id: number; success: boolean } => {
+      return typeof item === 'object' && item !== null && typeof (item as any).account_id === 'number' && (item as any).success === true
+    })
+    .map(item => item.account_id)
+  if (resultSuccessIds.length > 0) return resultSuccessIds
+  return Number(result.failed ?? 0) === 0 ? chunkIds : []
+}
+
+const collectBulkOperationErrors = (result: Record<string, unknown>) => {
+  const errors: Array<{ account_id: number; error: string }> = []
+  if (Array.isArray(result.errors)) {
+    for (const item of result.errors) {
+      if (typeof item === 'object' && item !== null && typeof (item as any).account_id === 'number') {
+        errors.push({
+          account_id: (item as any).account_id,
+          error: String((item as any).error || '')
+        })
+      }
+    }
+  }
+  if (Array.isArray(result.results)) {
+    for (const item of result.results) {
+      if (
+        typeof item === 'object' &&
+        item !== null &&
+        (item as any).success === false &&
+        typeof (item as any).account_id === 'number'
+      ) {
+        errors.push({
+          account_id: (item as any).account_id,
+          error: String((item as any).error || '')
+        })
+      }
+    }
+  }
+  return errors
+}
+
+const mergeBulkOperationResult = (
+  aggregate: BulkOperationAggregate,
+  result: Record<string, unknown>,
+  chunkIds: number[]
+) => {
+  const resultSuccess = typeof result.success === 'number' ? result.success : extractSuccessIdsFromResult(result, chunkIds).length
+  const resultFailed = typeof result.failed === 'number' ? result.failed : extractFailedIdsFromResult(result).length
+  aggregate.success += resultSuccess
+  aggregate.failed += resultFailed
+  if (typeof result.rate_limited === 'number') {
+    aggregate.rateLimited += result.rate_limited
+  } else if (Array.isArray(result.results)) {
+    aggregate.rateLimited += result.results.filter(item => typeof item === 'object' && item !== null && (item as any).rate_limited === true).length
+  }
+  appendUniqueIds(aggregate.successIds, extractSuccessIdsFromResult(result, chunkIds))
+  appendUniqueIds(aggregate.failedIds, extractFailedIdsFromResult(result))
+  aggregate.errors.push(...collectBulkOperationErrors(result))
+}
+
+const updateBulkOperationProgressFromAggregate = (aggregate: BulkOperationAggregate, processed: number) => {
+  bulkOperationProgress.processed = processed
+  bulkOperationProgress.success = aggregate.success
+  bulkOperationProgress.failed = aggregate.failed
+  bulkOperationProgress.rateLimited = aggregate.rateLimited
+}
+
+const resolveBulkOperationAccountIds = async (target: AccountBatchOperationTarget) => {
+  if (target.mode === 'selected') {
+    return target.accountIds
+  }
+  const ids: number[] = []
+  let page = 1
+  let total = target.count
+  while (ids.length < total) {
+    const result = await adminAPI.accounts.list(page, BULK_OPERATION_FETCH_PAGE_SIZE, {
+      ...target.filters,
+      lite: '1'
+    })
+    ids.push(...result.items.map(account => account.id))
+    total = result.total
+    bulkOperationProgress.total = total
+    if (result.items.length === 0 || page >= result.pages) break
+    page += 1
+  }
+  return Array.from(new Set(ids))
+}
+
+const completeBulkOperation = async (
+  type: BulkOperationType,
+  target: AccountBatchOperationTarget,
+  aggregate: BulkOperationAggregate
+) => {
+  if (type === 'delete') {
+    if (aggregate.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkDeletePartial', { success: aggregate.success, failed: aggregate.failed }))
+      if (target.mode === 'selected') {
+        setSelectedIds(aggregate.failedIds.length > 0 ? aggregate.failedIds : target.accountIds)
+      }
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: aggregate.success }))
+      clearSelection()
+    }
+    await reload()
+    return
+  }
+
+  if (aggregate.failed > 0) {
+    appStore.showError(t('admin.accounts.bulkActions.checkStatusPartial', {
+      success: aggregate.success,
+      failed: aggregate.failed,
+      rateLimited: aggregate.rateLimited
+    }))
+    if (target.mode === 'selected') {
+      setSelectedIds(aggregate.failedIds.length > 0 ? aggregate.failedIds : target.accountIds)
+    }
+  } else {
+    appStore.showSuccess(t('admin.accounts.bulkActions.checkStatusSuccess', {
+      count: aggregate.success,
+      rateLimited: aggregate.rateLimited
+    }))
+    clearSelection()
+  }
+  await reload()
+  usageManualRefreshToken.value++
+}
+
+const runBulkOperationWithProgress = async (type: BulkOperationType, target: AccountBatchOperationTarget) => {
+  resetBulkOperationProgress(type, target.count)
+  const aggregate = createBulkOperationAggregate()
+  try {
+    const accountIds = await resolveBulkOperationAccountIds(target)
+    if (accountIds.length === 0) {
+      bulkOperationProgress.running = false
+      bulkOperationProgress.phase = 'done'
+      bulkOperationProgress.total = 0
+      appStore.showError(t('admin.accounts.bulkActions.noFilteredAccounts'))
+      return
+    }
+
+    bulkOperationProgress.total = accountIds.length
+    bulkOperationProgress.batchCount = Math.ceil(accountIds.length / BULK_OPERATION_CHUNK_SIZE)
+    bulkOperationProgress.phase = 'running'
+
+    for (let start = 0; start < accountIds.length; start += BULK_OPERATION_CHUNK_SIZE) {
+      const chunkIds = accountIds.slice(start, start + BULK_OPERATION_CHUNK_SIZE)
+      bulkOperationProgress.currentBatch = Math.floor(start / BULK_OPERATION_CHUNK_SIZE) + 1
+      try {
+        const result = type === 'delete'
+          ? await adminAPI.accounts.batchDelete(chunkIds)
+          : await adminAPI.accounts.batchStatusCheck(chunkIds)
+        mergeBulkOperationResult(aggregate, result as unknown as Record<string, unknown>, chunkIds)
+      } catch (error) {
+        const message = getBulkOperationErrorMessage(error)
+        aggregate.failed += chunkIds.length
+        appendUniqueIds(aggregate.failedIds, chunkIds)
+        aggregate.errors.push(...chunkIds.map(accountId => ({ account_id: accountId, error: message })))
+        bulkOperationProgress.errorMessage = message
+      }
+      updateBulkOperationProgressFromAggregate(aggregate, Math.min(accountIds.length, start + chunkIds.length))
+    }
+
+    bulkOperationProgress.running = false
+    bulkOperationProgress.phase = 'done'
+    await completeBulkOperation(type, target, aggregate)
+  } catch (error) {
+    const message = getBulkOperationErrorMessage(error)
+    bulkOperationProgress.running = false
+    bulkOperationProgress.phase = 'failed'
+    bulkOperationProgress.errorMessage = message
+    appStore.showError(message)
+  }
+}
+
+const openBulkOperationConfirm = (type: BulkOperationType, target: AccountBatchOperationTarget) => {
+  const message = target.mode === 'selected'
+    ? type === 'delete'
+      ? t('admin.accounts.bulkDeleteConfirm', { count: target.count })
+      : t('admin.accounts.bulkActions.checkStatusConfirm', { count: target.count })
+    : type === 'delete'
+      ? t('admin.accounts.bulkDeleteFilteredConfirm', { count: target.count })
+      : t('admin.accounts.bulkActions.checkStatusFilteredConfirm', { count: target.count })
+
+  bulkOperationConfirm.show = true
+  bulkOperationConfirm.type = type
+  bulkOperationConfirm.target = target
+  bulkOperationConfirm.title = type === 'delete'
+    ? t('admin.accounts.bulkDeleteTitle')
+    : t('admin.accounts.bulkActions.checkStatus')
+  bulkOperationConfirm.message = message
+  bulkOperationConfirm.confirmText = type === 'delete'
+    ? t('common.delete')
+    : t('admin.accounts.bulkActions.checkStatus')
+  bulkOperationConfirm.danger = type === 'delete'
+}
+
+const cancelBulkOperationConfirm = () => {
+  bulkOperationConfirm.show = false
+  bulkOperationConfirm.type = null
+  bulkOperationConfirm.target = null
+}
+
+const confirmBulkOperation = async () => {
+  const type = bulkOperationConfirm.type
+  const target = bulkOperationConfirm.target
+  if (!type || !target) return
+  cancelBulkOperationConfirm()
+  await runBulkOperationWithProgress(type, target)
+}
+
+const handleBulkOperationProgressClose = () => {
+  if (bulkOperationProgress.running) return
+  bulkOperationProgress.show = false
+  bulkOperationProgress.type = null
+  bulkOperationProgress.phase = 'idle'
+  bulkOperationProgress.errorMessage = ''
+}
 
 const handleBulkDelete = async () => {
   const target = await buildBulkOperationTarget()
   if (!target) return
-  const message = target.mode === 'selected'
-    ? t('admin.accounts.bulkDeleteConfirm', { count: target.count })
-    : t('admin.accounts.bulkDeleteFilteredConfirm', { count: target.count })
-  if (!confirm(message)) return
-  try {
-    const result = await adminAPI.accounts.batchDelete(accountBatchTargetPayload(target))
-    if (result.failed > 0) {
-      appStore.showError(t('admin.accounts.bulkDeletePartial', { success: result.success, failed: result.failed }))
-      if (target.mode === 'selected') {
-        const failedIds = result.failed_ids ?? result.results?.filter(item => !item.success).map(item => item.account_id) ?? []
-        setSelectedIds(failedIds.length > 0 ? failedIds : target.accountIds)
-      }
-    } else {
-      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: result.success }))
-      clearSelection()
-    }
-    reload()
-  } catch (error) {
-    console.error('Failed to bulk delete accounts:', error)
-    appStore.showError(String(error))
-  }
+  openBulkOperationConfirm('delete', target)
 }
 const handleBulkResetStatus = async () => {
   if (!confirm(t('common.confirm'))) return
@@ -1310,36 +1743,7 @@ const handleBulkRefreshToken = async () => {
 const handleBulkStatusCheck = async () => {
   const target = await buildBulkOperationTarget()
   if (!target) return
-  const message = target.mode === 'selected'
-    ? t('admin.accounts.bulkActions.checkStatusConfirm', { count: target.count })
-    : t('admin.accounts.bulkActions.checkStatusFilteredConfirm', { count: target.count })
-  if (!confirm(message)) return
-  try {
-    const result = await adminAPI.accounts.batchStatusCheck(accountBatchTargetPayload(target))
-    const rateLimitedCount = result.rate_limited ?? 0
-    if (result.failed > 0) {
-      appStore.showError(t('admin.accounts.bulkActions.checkStatusPartial', {
-        success: result.success,
-        failed: result.failed,
-        rateLimited: rateLimitedCount
-      }))
-      if (target.mode === 'selected') {
-        const failedIds = result.results?.filter(item => !item.success).map(item => item.account_id) ?? []
-        setSelectedIds(failedIds.length > 0 ? failedIds : target.accountIds)
-      }
-    } else {
-      appStore.showSuccess(t('admin.accounts.bulkActions.checkStatusSuccess', {
-        count: result.success,
-        rateLimited: rateLimitedCount
-      }))
-      clearSelection()
-    }
-    reload()
-    usageManualRefreshToken.value++
-  } catch (error) {
-    console.error('Failed to bulk check status:', error)
-    appStore.showError(String(error))
-  }
+  openBulkOperationConfirm('status-check', target)
 }
 const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => {
   if (accountIds.length === 0) return

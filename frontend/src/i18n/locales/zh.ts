@@ -3431,6 +3431,21 @@ export default {
         checkStatusPartial: '状态检测部分完成：成功 {success} 个，失败 {failed} 个，已同步限流 {rateLimited} 个',
         partialSuccess: '操作部分完成：{success} 成功，{failed} 失败'
       },
+      bulkOperationProgress: {
+        deleteTitle: '批量删除进度',
+        statusCheckTitle: '批量状态检测进度',
+        pending: '等待执行...',
+        preparing: '正在准备账号列表...',
+        running: '正在执行第 {current}/{total} 批',
+        completed: '执行完成',
+        failedStatus: '执行失败',
+        noCloseHint: '执行期间请保持窗口打开，完成后可关闭。',
+        processed: '已处理 {current}/{total}',
+        success: '成功',
+        failed: '失败',
+        rateLimited: '限流',
+        runningButton: '执行中...'
+      },
       bulkEdit: {
         title: '批量编辑账号',
         selectionInfo: '已选择 {count} 个账号。只更新您勾选或填写的字段，未勾选的字段保持不变。',
