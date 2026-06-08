@@ -5347,6 +5347,23 @@
 
               <div>
                 <label class="input-label">
+                  {{ t('admin.settings.features.affiliate.registrationRewardAmount') }}
+                </label>
+                <input
+                  v-model.number="form.affiliate_registration_reward_amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="input"
+                  placeholder="0"
+                />
+                <p class="mt-1 text-xs text-gray-400">
+                  {{ t('admin.settings.features.affiliate.registrationRewardAmountHint') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="input-label">
                   {{ t('admin.settings.features.affiliate.freezeHours') }}
                 </label>
                 <input
@@ -7027,6 +7044,7 @@ const form = reactive<SettingsForm>({
   default_balance: 0,
   default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
   affiliate_rebate_rate: 20,
+  affiliate_registration_reward_amount: 0,
   affiliate_rebate_freeze_hours: 0,
   affiliate_rebate_duration_days: 0,
   affiliate_rebate_per_invitee_cap: 0,
@@ -8152,6 +8170,9 @@ async function saveSettings() {
       form.wechat_connect_mobile_enabled,
       form.wechat_connect_mode,
     );
+    const affiliateRegistrationRewardAmount = Number(
+      form.affiliate_registration_reward_amount,
+    );
 
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
@@ -8173,6 +8194,11 @@ async function saveSettings() {
         100,
         Math.max(0, Number(form.affiliate_rebate_rate) || 0),
       ),
+      affiliate_registration_reward_amount: Number.isFinite(
+        affiliateRegistrationRewardAmount,
+      )
+        ? Math.max(0, affiliateRegistrationRewardAmount)
+        : 0,
       affiliate_rebate_freeze_hours: Math.max(0, Math.min(720, Number(form.affiliate_rebate_freeze_hours) || 0)),
       affiliate_rebate_duration_days: Math.max(0, Math.min(3650, Math.floor(Number(form.affiliate_rebate_duration_days) || 0))),
       affiliate_rebate_per_invitee_cap: Math.max(0, Number(form.affiliate_rebate_per_invitee_cap) || 0),

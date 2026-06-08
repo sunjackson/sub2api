@@ -5430,6 +5430,8 @@ export default {
           enabledHint: 'When off, the affiliate menu is hidden, the aff parameter is ignored at signup, and new recharges generate no rebate. Existing rebate balances can still be transferred.',
           rebateRate: 'Global Rebate Rate',
           rebateRateHint: 'Default percentage given back to the inviter on recharges (0-100, e.g. 10 = 10%).',
+          registrationRewardAmount: 'Signup Reward Amount',
+          registrationRewardAmountHint: 'When an invitee registers through an affiliate link, this amount is credited to the inviter balance immediately. 0 = disabled.',
           freezeHours: 'Rebate Freeze Period (hours)',
           freezeHoursDesc: 'New rebates will be frozen for this period before becoming available for withdrawal. 0 = no freeze.',
           durationDays: 'Rebate Duration (days)',

@@ -98,6 +98,7 @@ type AffiliateRepository interface {
 	EnsureUserAffiliate(ctx context.Context, userID int64) (*AffiliateSummary, error)
 	GetAffiliateByCode(ctx context.Context, code string) (*AffiliateSummary, error)
 	BindInviter(ctx context.Context, userID, inviterID int64) (bool, error)
+	GrantRegistrationReward(ctx context.Context, inviterID, inviteeUserID int64, amount float64) (bool, error)
 	AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error)
 	GetAccruedRebateFromInvitee(ctx context.Context, inviterID, inviteeUserID int64) (float64, error)
 	ThawFrozenQuota(ctx context.Context, userID int64) (float64, error)
@@ -287,6 +288,9 @@ func (s *AffiliateService) BindInviterByCode(ctx context.Context, userID int64, 
 		return err
 	}
 	if selfSummary.InviterID != nil {
+		if err := s.grantRegistrationRewardIfConfigured(ctx, *selfSummary.InviterID, userID); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -307,6 +311,9 @@ func (s *AffiliateService) BindInviterByCode(ctx context.Context, userID int64, 
 	}
 	if !bound {
 		return ErrAffiliateAlreadyBound
+	}
+	if err := s.grantRegistrationRewardIfConfigured(ctx, inviterSummary.UserID, userID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -406,6 +413,35 @@ func (s *AffiliateService) globalRebateRatePercent(ctx context.Context) float64 
 		return AffiliateRebateRateDefault
 	}
 	return s.settingService.GetAffiliateRebateRatePercent(ctx)
+}
+
+func (s *AffiliateService) registrationRewardAmount(ctx context.Context) float64 {
+	if s == nil || s.settingService == nil {
+		return AffiliateRegistrationRewardAmountDefault
+	}
+	amount := s.settingService.GetAffiliateRegistrationRewardAmount(ctx)
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return AffiliateRegistrationRewardAmountDefault
+	}
+	return roundTo(amount, 8)
+}
+
+func (s *AffiliateService) grantRegistrationRewardIfConfigured(ctx context.Context, inviterID, inviteeUserID int64) error {
+	if s == nil || s.repo == nil || inviterID <= 0 || inviteeUserID <= 0 {
+		return nil
+	}
+	amount := s.registrationRewardAmount(ctx)
+	if amount <= 0 {
+		return nil
+	}
+	applied, err := s.repo.GrantRegistrationReward(ctx, inviterID, inviteeUserID, amount)
+	if err != nil {
+		return err
+	}
+	if applied {
+		s.invalidateAffiliateCaches(ctx, inviterID)
+	}
+	return nil
 }
 
 func (s *AffiliateService) TransferAffiliateQuota(ctx context.Context, userID int64) (float64, float64, error) {

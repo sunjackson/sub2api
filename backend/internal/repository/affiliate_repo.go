@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"strings"
 	"time"
 
@@ -112,6 +114,83 @@ func (r *affiliateRepository) BindInviter(ctx context.Context, userID, inviterID
 		return false, err
 	}
 	return bound, nil
+}
+
+func (r *affiliateRepository) GrantRegistrationReward(ctx context.Context, inviterID, inviteeUserID int64, amount float64) (bool, error) {
+	if inviterID <= 0 || inviteeUserID <= 0 || inviterID == inviteeUserID {
+		return false, nil
+	}
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return false, nil
+	}
+
+	var applied bool
+	err := r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		if err := lockAffiliateRegistrationReward(txCtx, txClient, inviterID, inviteeUserID); err != nil {
+			return err
+		}
+		if _, err := ensureUserAffiliateWithClient(txCtx, txClient, inviterID); err != nil {
+			return err
+		}
+		if _, err := ensureUserAffiliateWithClient(txCtx, txClient, inviteeUserID); err != nil {
+			return err
+		}
+
+		exists, err := affiliateRegistrationRewardExists(txCtx, txClient, inviterID, inviteeUserID)
+		if err != nil {
+			return err
+		}
+		if exists {
+			applied = false
+			return nil
+		}
+
+		if _, err := txClient.ExecContext(txCtx, `
+UPDATE users
+SET balance = balance + $1,
+    total_recharged = total_recharged + $1,
+    updated_at = NOW()
+WHERE id = $2`, amount, inviterID); err != nil {
+			return fmt.Errorf("credit affiliate registration reward: %w", err)
+		}
+
+		snapshot, err := queryAffiliateTransferSnapshot(txCtx, txClient, inviterID)
+		if err != nil {
+			return err
+		}
+
+		if _, err := txClient.ExecContext(txCtx, `
+INSERT INTO user_affiliate_ledger (
+    user_id,
+    action,
+    amount,
+    source_user_id,
+    balance_after,
+    aff_quota_after,
+    aff_frozen_quota_after,
+    aff_history_quota_after,
+    created_at,
+    updated_at
+)
+VALUES ($1, 'registration_reward', $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+			inviterID,
+			amount,
+			inviteeUserID,
+			snapshot.BalanceAfter,
+			snapshot.AvailableQuotaAfter,
+			snapshot.FrozenQuotaAfter,
+			snapshot.HistoryQuotaAfter,
+		); err != nil {
+			return fmt.Errorf("insert affiliate registration reward ledger: %w", err)
+		}
+
+		applied = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return applied, nil
 }
 
 func (r *affiliateRepository) AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error) {
@@ -908,6 +987,58 @@ func queryUserBalance(ctx context.Context, client affiliateQueryExecer, userID i
 		return 0, err
 	}
 	return balance, nil
+}
+
+func lockAffiliateRegistrationReward(ctx context.Context, client affiliateQueryExecer, inviterID, inviteeUserID int64) error {
+	rows, err := client.QueryContext(ctx,
+		"SELECT pg_advisory_xact_lock($1)",
+		affiliateRegistrationRewardLockKey(inviterID, inviteeUserID),
+	)
+	if err != nil {
+		return fmt.Errorf("lock affiliate registration reward: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		return fmt.Errorf("lock affiliate registration reward: no row returned")
+	}
+	return rows.Err()
+}
+
+func affiliateRegistrationRewardExists(ctx context.Context, client affiliateQueryExecer, inviterID, inviteeUserID int64) (bool, error) {
+	rows, err := client.QueryContext(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM user_affiliate_ledger
+    WHERE user_id = $1
+      AND source_user_id = $2
+      AND action = 'registration_reward'
+    LIMIT 1
+)`, inviterID, inviteeUserID)
+	if err != nil {
+		return false, fmt.Errorf("query affiliate registration reward ledger: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("query affiliate registration reward ledger: no row returned")
+	}
+	var exists bool
+	if err := rows.Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, rows.Err()
+}
+
+func affiliateRegistrationRewardLockKey(inviterID, inviteeUserID int64) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("affiliate_registration_reward:"))
+	_, _ = h.Write([]byte(fmt.Sprintf("%d:%d", inviterID, inviteeUserID)))
+	return int64(h.Sum64())
 }
 
 type affiliateTransferSnapshot struct {

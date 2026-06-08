@@ -1261,11 +1261,12 @@ func (s *adminServiceImpl) listAffiliateBalanceHistory(ctx context.Context, user
 
 	rows, err := s.entClient.QueryContext(ctx, `
 SELECT id,
+       action,
        amount::double precision,
        created_at
 FROM user_affiliate_ledger
 WHERE user_id = $1
-  AND action = 'transfer'
+  AND action IN ('transfer', 'registration_reward')
 ORDER BY created_at DESC, id DESC
 OFFSET $2
 LIMIT $3`, userID, params.Offset(), params.Limit())
@@ -1277,16 +1278,21 @@ LIMIT $3`, userID, params.Offset(), params.Limit())
 	codes := make([]RedeemCode, 0, params.Limit())
 	for rows.Next() {
 		var id int64
+		var action string
 		var amount float64
 		var createdAt time.Time
-		if err := rows.Scan(&id, &amount, &createdAt); err != nil {
+		if err := rows.Scan(&id, &action, &amount, &createdAt); err != nil {
 			return nil, 0, err
+		}
+		codePrefix := "AFF"
+		if action == "registration_reward" {
+			codePrefix = "AFF-REG"
 		}
 		usedBy := userID
 		usedAt := createdAt
 		codes = append(codes, RedeemCode{
 			ID:        -id,
-			Code:      fmt.Sprintf("AFF-%d", id),
+			Code:      fmt.Sprintf("%s-%d", codePrefix, id),
 			Type:      RedeemTypeAffiliateBalance,
 			Value:     amount,
 			Status:    StatusUsed,
@@ -1311,7 +1317,7 @@ func countAffiliateBalanceHistory(ctx context.Context, client *dbent.Client, use
 SELECT COUNT(*)
 FROM user_affiliate_ledger
 WHERE user_id = $1
-  AND action = 'transfer'`, userID)
+  AND action IN ('transfer', 'registration_reward')`, userID)
 	if err != nil {
 		return 0, err
 	}

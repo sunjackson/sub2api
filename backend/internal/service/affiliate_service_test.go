@@ -7,6 +7,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -128,4 +129,66 @@ func TestIsValidAffiliateCodeFormat(t *testing.T) {
 			require.Equal(t, tc.want, isValidAffiliateCodeFormat(tc.in))
 		})
 	}
+}
+
+type affiliateRewardRepoStub struct {
+	AffiliateRepository
+
+	applied       bool
+	inviterID     int64
+	inviteeUserID int64
+	amount        float64
+}
+
+func (r *affiliateRewardRepoStub) GrantRegistrationReward(ctx context.Context, inviterID, inviteeUserID int64, amount float64) (bool, error) {
+	r.inviterID = inviterID
+	r.inviteeUserID = inviteeUserID
+	r.amount = amount
+	return r.applied, nil
+}
+
+type affiliateRewardAuthInvalidator struct {
+	userIDs []int64
+}
+
+func (i *affiliateRewardAuthInvalidator) InvalidateAuthCacheByKey(ctx context.Context, key string) {
+}
+
+func (i *affiliateRewardAuthInvalidator) InvalidateAuthCacheByUserID(ctx context.Context, userID int64) {
+	i.userIDs = append(i.userIDs, userID)
+}
+
+func (i *affiliateRewardAuthInvalidator) InvalidateAuthCacheByGroupID(ctx context.Context, groupID int64) {
+}
+
+type affiliateRewardBillingCacheStub struct {
+	billingCacheWorkerStub
+
+	invalidatedUserIDs []int64
+}
+
+func (b *affiliateRewardBillingCacheStub) InvalidateUserBalance(ctx context.Context, userID int64) error {
+	b.invalidatedUserIDs = append(b.invalidatedUserIDs, userID)
+	return nil
+}
+
+func TestGrantRegistrationRewardIfConfiguredInvalidatesCaches(t *testing.T) {
+	t.Parallel()
+
+	repo := &affiliateRewardRepoStub{applied: true}
+	authInvalidator := &affiliateRewardAuthInvalidator{}
+	billingCache := &affiliateRewardBillingCacheStub{}
+	settingService := NewSettingService(&settingRepoStub{values: map[string]string{
+		SettingKeyAffiliateRegistrationRewardAmount: "2.5",
+	}}, &config.Config{})
+	svc := NewAffiliateService(repo, settingService, authInvalidator, &BillingCacheService{cache: billingCache})
+
+	err := svc.grantRegistrationRewardIfConfigured(context.Background(), 101, 202)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(101), repo.inviterID)
+	require.Equal(t, int64(202), repo.inviteeUserID)
+	require.InDelta(t, 2.5, repo.amount, 1e-9)
+	require.Equal(t, []int64{101}, authInvalidator.userIDs)
+	require.Equal(t, []int64{101}, billingCache.invalidatedUserIDs)
 }

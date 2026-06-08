@@ -100,6 +100,94 @@ LIMIT 1`, u.ID)
 	require.InDelta(t, 12.34, historyAfter, 1e-9)
 }
 
+func TestAffiliateRepository_GrantRegistrationReward_IdempotentAndAudited(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	txCtx := dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+
+	repo := NewAffiliateRepository(client, integrationDB)
+
+	inviter := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-registration-reward-inviter-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Balance:      7.25,
+		Concurrency:  5,
+	})
+	invitee := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-registration-reward-invitee-%d@example.com", time.Now().UnixNano()+1),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+
+	_, err := repo.EnsureUserAffiliate(txCtx, inviter.ID)
+	require.NoError(t, err)
+	_, err = repo.EnsureUserAffiliate(txCtx, invitee.ID)
+	require.NoError(t, err)
+
+	_, err = client.ExecContext(txCtx, `
+UPDATE user_affiliates
+SET aff_quota = 1.25,
+    aff_frozen_quota = 2.5,
+    aff_history_quota = 3.75,
+    updated_at = NOW()
+WHERE user_id = $1`, inviter.ID)
+	require.NoError(t, err)
+
+	bound, err := repo.BindInviter(txCtx, invitee.ID, inviter.ID)
+	require.NoError(t, err)
+	require.True(t, bound, "invitee must bind to inviter")
+
+	applied, err := repo.GrantRegistrationReward(txCtx, inviter.ID, invitee.ID, 4.56)
+	require.NoError(t, err)
+	require.True(t, applied, "first reward grant must apply")
+
+	appliedAgain, err := repo.GrantRegistrationReward(txCtx, inviter.ID, invitee.ID, 4.56)
+	require.NoError(t, err)
+	require.False(t, appliedAgain, "same inviter/invitee reward must be idempotent")
+
+	persistedBalance := querySingleFloat(t, txCtx, client,
+		"SELECT balance::double precision FROM users WHERE id = $1", inviter.ID)
+	require.InDelta(t, 11.81, persistedBalance, 1e-9)
+
+	totalRecharged := querySingleFloat(t, txCtx, client,
+		"SELECT total_recharged::double precision FROM users WHERE id = $1", inviter.ID)
+	require.InDelta(t, 4.56, totalRecharged, 1e-9)
+
+	ledgerCount := querySingleInt(t, txCtx, client,
+		"SELECT COUNT(*) FROM user_affiliate_ledger WHERE user_id = $1 AND source_user_id = $2 AND action = 'registration_reward'",
+		inviter.ID, invitee.ID)
+	require.Equal(t, 1, ledgerCount)
+
+	rows, err := client.QueryContext(txCtx, `
+SELECT amount::double precision,
+       source_user_id,
+       balance_after::double precision,
+       aff_quota_after::double precision,
+       aff_frozen_quota_after::double precision,
+       aff_history_quota_after::double precision
+FROM user_affiliate_ledger
+WHERE user_id = $1 AND action = 'registration_reward'
+LIMIT 1`, inviter.ID)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	require.True(t, rows.Next(), "expected registration reward ledger")
+	var amount, balanceAfter, quotaAfter, frozenAfter, historyAfter float64
+	var sourceUserID int64
+	require.NoError(t, rows.Scan(&amount, &sourceUserID, &balanceAfter, &quotaAfter, &frozenAfter, &historyAfter))
+	require.InDelta(t, 4.56, amount, 1e-9)
+	require.Equal(t, invitee.ID, sourceUserID)
+	require.InDelta(t, 11.81, balanceAfter, 1e-9)
+	require.InDelta(t, 1.25, quotaAfter, 1e-9)
+	require.InDelta(t, 2.5, frozenAfter, 1e-9)
+	require.InDelta(t, 3.75, historyAfter, 1e-9)
+	require.NoError(t, rows.Err())
+}
+
 // TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction guards the
 // cross-layer tx propagation invariant: when AccrueQuota is called with a ctx
 // that already carries a transaction (via dbent.NewTxContext), repo.withTx
