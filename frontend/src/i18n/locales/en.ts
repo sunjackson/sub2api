@@ -3274,8 +3274,12 @@ export default {
         disableScheduling: 'Disable Scheduling',
         resetStatus: 'Reset Status',
         refreshToken: 'Refresh Token',
+        checkStatus: 'Check Status',
+        checkStatusConfirm: 'Check status for {count} selected account(s)? This actively refreshes usage and syncs exhausted 5-hour/7-day windows to rate-limited status.',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
+        checkStatusSuccess: 'Checked {count} account(s); {rateLimited} synced to rate-limited status',
+        checkStatusPartial: 'Status check partially completed: {success} succeeded, {failed} failed, {rateLimited} synced to rate-limited status',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'
       },
       bulkEdit: {

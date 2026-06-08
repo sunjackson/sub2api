@@ -659,6 +659,18 @@ export interface BatchOperationResult {
   warnings?: Array<{ account_id: number; warning: string }>
 }
 
+export interface BatchStatusCheckResult extends BatchOperationResult {
+  rate_limited: number
+  results: Array<{
+    account_id: number
+    success: boolean
+    rate_limited?: boolean
+    rate_limit_reset_at?: string
+    windows?: string[]
+    error?: string
+  }>
+}
+
 /**
  * Revert account proxy to original before fallback
  * @param id - Account ID
@@ -677,6 +689,20 @@ export async function revertProxyFallback(id: number): Promise<{ message: string
 export async function batchClearError(accountIds: number[]): Promise<BatchOperationResult> {
   const { data } = await apiClient.post<BatchOperationResult>('/admin/accounts/batch-clear-error', {
     account_ids: accountIds
+  })
+  return data
+}
+
+/**
+ * Batch check account usage status and sync exhausted windows to account rate limit state.
+ * @param accountIds - Array of account IDs
+ * @returns Batch status check result
+ */
+export async function batchStatusCheck(accountIds: number[]): Promise<BatchStatusCheckResult> {
+  const { data } = await apiClient.post<BatchStatusCheckResult>('/admin/accounts/batch-status-check', {
+    account_ids: accountIds
+  }, {
+    timeout: 180000
   })
   return data
 }
@@ -744,6 +770,7 @@ export const accountsAPI = {
   importCodexSession,
   getAntigravityDefaultModelMapping,
   batchClearError,
+  batchStatusCheck,
   batchRefresh,
   setPrivacy,
   revertProxyFallback

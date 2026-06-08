@@ -3421,8 +3421,12 @@ export default {
         disableScheduling: '批量停止调度',
         resetStatus: '批量重置状态',
         refreshToken: '批量刷新令牌',
+        checkStatus: '批量状态检测',
+        checkStatusConfirm: '确定要检测选中的 {count} 个账号状态吗？检测会主动刷新用量，并将已达到 5 小时/7 天限额的账号同步为限流中。',
         resetStatusSuccess: '已成功重置 {count} 个账号状态',
         refreshTokenSuccess: '已成功刷新 {count} 个账号令牌',
+        checkStatusSuccess: '已检测 {count} 个账号，其中 {rateLimited} 个已同步为限流中',
+        checkStatusPartial: '状态检测部分完成：成功 {success} 个，失败 {failed} 个，已同步限流 {rateLimited} 个',
         partialSuccess: '操作部分完成：{success} 成功，{failed} 失败'
       },
       bulkEdit: {

@@ -1215,6 +1215,176 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 	})
 }
 
+// BatchStatusCheck handles batch checking account usage status and syncing exhausted windows.
+// POST /api/v1/admin/accounts/batch-status-check
+func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
+	var req struct {
+		AccountIDs []int64 `json:"account_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if len(req.AccountIDs) == 0 {
+		response.BadRequest(c, "account_ids is required")
+		return
+	}
+	if h.accountUsageService == nil {
+		response.InternalError(c, "account usage service is unavailable")
+		return
+	}
+
+	ctx := c.Request.Context()
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, req.AccountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	foundIDs := make(map[int64]bool, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			foundIDs[account.ID] = true
+		}
+	}
+
+	const maxConcurrency = 5
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrency)
+
+	var mu sync.Mutex
+	successCount := 0
+	failedCount := 0
+	rateLimitedCount := 0
+	errors := make([]gin.H, 0)
+	results := make([]gin.H, 0, len(req.AccountIDs))
+
+	for _, id := range req.AccountIDs {
+		if !foundIDs[id] {
+			failedCount++
+			errors = append(errors, gin.H{
+				"account_id": id,
+				"error":      "account not found",
+			})
+			results = append(results, gin.H{
+				"account_id": id,
+				"success":    false,
+				"error":      "account not found",
+			})
+		}
+	}
+
+	for _, account := range accounts {
+		acc := account
+		if acc == nil {
+			continue
+		}
+		g.Go(func() error {
+			usage, err := h.accountUsageService.GetUsage(gctx, acc.ID, true)
+			if err != nil {
+				mu.Lock()
+				failedCount++
+				errors = append(errors, gin.H{
+					"account_id": acc.ID,
+					"error":      err.Error(),
+				})
+				results = append(results, gin.H{
+					"account_id": acc.ID,
+					"success":    false,
+					"error":      err.Error(),
+				})
+				mu.Unlock()
+				return nil
+			}
+
+			resetAt, windows := exhaustedUsageResetAt(usage, time.Now())
+			rateLimited := resetAt != nil
+			if resetAt != nil {
+				if err := h.adminService.SetAccountRateLimited(gctx, acc.ID, *resetAt); err != nil {
+					mu.Lock()
+					failedCount++
+					errors = append(errors, gin.H{
+						"account_id": acc.ID,
+						"error":      err.Error(),
+					})
+					results = append(results, gin.H{
+						"account_id": acc.ID,
+						"success":    false,
+						"error":      err.Error(),
+					})
+					mu.Unlock()
+					return nil
+				}
+			}
+
+			result := gin.H{
+				"account_id":   acc.ID,
+				"success":      true,
+				"rate_limited": rateLimited,
+				"windows":      windows,
+			}
+			if resetAt != nil {
+				result["rate_limit_reset_at"] = resetAt.UTC().Format(time.RFC3339)
+			}
+
+			mu.Lock()
+			successCount++
+			if rateLimited {
+				rateLimitedCount++
+			}
+			results = append(results, result)
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"total":        len(req.AccountIDs),
+		"success":      successCount,
+		"failed":       failedCount,
+		"rate_limited": rateLimitedCount,
+		"errors":       errors,
+		"results":      results,
+	})
+}
+
+func exhaustedUsageResetAt(usage *service.UsageInfo, now time.Time) (*time.Time, []string) {
+	if usage == nil {
+		return nil, nil
+	}
+	windows := []struct {
+		name     string
+		progress *service.UsageProgress
+	}{
+		{name: "5h", progress: usage.FiveHour},
+		{name: "7d", progress: usage.SevenDay},
+		{name: "7d_sonnet", progress: usage.SevenDaySonnet},
+	}
+
+	var resetAt *time.Time
+	limitedWindows := make([]string, 0, len(windows))
+	for _, window := range windows {
+		if window.progress == nil || window.progress.ResetsAt == nil {
+			continue
+		}
+		if window.progress.Utilization < 100 || !now.Before(*window.progress.ResetsAt) {
+			continue
+		}
+		limitedWindows = append(limitedWindows, window.name)
+		candidate := window.progress.ResetsAt.UTC()
+		if resetAt == nil || candidate.After(*resetAt) {
+			copy := candidate
+			resetAt = &copy
+		}
+	}
+	return resetAt, limitedWindows
+}
+
 // BatchRefresh handles batch refreshing account credentials
 // POST /api/v1/admin/accounts/batch-refresh
 func (h *AccountHandler) BatchRefresh(c *gin.Context) {

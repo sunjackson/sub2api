@@ -177,6 +177,7 @@
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
+          @check-status="handleBulkStatusCheck"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -1227,7 +1228,32 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
+const handleBulkDelete = async () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0) return
+  if (!confirm(t('admin.accounts.bulkDeleteConfirm', { count: accountIds.length }))) return
+  let success = 0
+  let failed = 0
+  const failedIds: number[] = []
+  await Promise.all(accountIds.map(async (id) => {
+    try {
+      await adminAPI.accounts.delete(id)
+      success++
+    } catch (error) {
+      failed++
+      failedIds.push(id)
+      console.error(`Failed to delete account ${id}:`, error)
+    }
+  }))
+  if (failed > 0) {
+    appStore.showError(t('admin.accounts.bulkDeletePartial', { success, failed }))
+    setSelectedIds(failedIds)
+  } else {
+    appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: success }))
+    clearSelection()
+  }
+  reload()
+}
 const handleBulkResetStatus = async () => {
   if (!confirm(t('common.confirm'))) return
   try {
@@ -1257,6 +1283,35 @@ const handleBulkRefreshToken = async () => {
     reload()
   } catch (error) {
     console.error('Failed to bulk refresh token:', error)
+    appStore.showError(String(error))
+  }
+}
+const handleBulkStatusCheck = async () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0) return
+  if (!confirm(t('admin.accounts.bulkActions.checkStatusConfirm', { count: accountIds.length }))) return
+  try {
+    const result = await adminAPI.accounts.batchStatusCheck(accountIds)
+    const rateLimitedCount = result.rate_limited ?? 0
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.checkStatusPartial', {
+        success: result.success,
+        failed: result.failed,
+        rateLimited: rateLimitedCount
+      }))
+      const failedIds = result.results?.filter(item => !item.success).map(item => item.account_id) ?? []
+      setSelectedIds(failedIds.length > 0 ? failedIds : accountIds)
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkActions.checkStatusSuccess', {
+        count: result.success,
+        rateLimited: rateLimitedCount
+      }))
+      clearSelection()
+    }
+    reload()
+    usageManualRefreshToken.value++
+  } catch (error) {
+    console.error('Failed to bulk check status:', error)
     appStore.showError(String(error))
   }
 }

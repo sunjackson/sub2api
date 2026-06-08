@@ -364,6 +364,10 @@ func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, upd
 	return nil
 }
 
+func (s *stubAdminService) SetAccountRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
+	return nil
+}
+
 func (s *stubAdminService) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }
