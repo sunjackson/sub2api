@@ -93,6 +93,11 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	Dev                     DevConfig                     `mapstructure:"dev"`
+}
+
+type DevConfig struct {
+	DisableBackgroundWorkers bool `mapstructure:"disable_background_workers"`
 }
 
 type LogConfig struct {
@@ -1532,6 +1537,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("dev.disable_background_workers", false)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

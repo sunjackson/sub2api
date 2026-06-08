@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"database/sql"
+	"os"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -18,6 +20,14 @@ import (
 type BuildInfo struct {
 	Version   string
 	BuildType string
+}
+
+func backgroundWorkersDisabled(cfg *config.Config) bool {
+	if cfg != nil && cfg.Dev.DisableBackgroundWorkers {
+		return true
+	}
+	raw := strings.TrimSpace(os.Getenv("SUB2API_DISABLE_BACKGROUND_WORKERS"))
+	return strings.EqualFold(raw, "true") || raw == "1" || strings.EqualFold(raw, "yes")
 }
 
 // ProvidePricingService creates and initializes PricingService
@@ -80,7 +90,11 @@ func ProvideTokenRefreshService(
 	// 调用侧显式注入后台刷新策略，避免策略漂移
 	svc.SetRefreshPolicy(DefaultBackgroundRefreshPolicy())
 	svc.SetAccountRuntimeBlocker(runtimeBlocker)
-	svc.Start()
+	if backgroundWorkersDisabled(cfg) {
+		logger.LegacyPrintf("service.token_refresh", "[TokenRefresh] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -160,14 +174,22 @@ func ProvideUsageCleanupService(repo UsageCleanupRepository, timingWheel *Timing
 // ProvideAccountExpiryService creates and starts AccountExpiryService.
 func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpiryService {
 	svc := NewAccountExpiryService(accountRepo, time.Minute)
-	svc.Start()
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.account_expiry", "[AccountExpiry] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
 // ProvideProxyExpiryService creates and starts ProxyExpiryService.
 func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
 	svc := NewProxyExpiryService(proxyRepo, time.Minute)
-	svc.Start()
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.proxy_expiry", "[ProxyExpiry] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -177,7 +199,11 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	svc.SetSettingRepository(settingRepo)
 	svc.SetNotificationEmailService(notificationEmailService)
 	svc.SetLeaderLock(lockCache, db)
-	svc.Start()
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.subscription_expiry", "[SubscriptionExpiry] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -229,7 +255,11 @@ func ProvideSchedulerSnapshotService(
 	cfg *config.Config,
 ) *SchedulerSnapshotService {
 	svc := NewSchedulerSnapshotService(cache, outboxRepo, accountRepo, groupRepo, cfg)
-	svc.Start()
+	if backgroundWorkersDisabled(cfg) {
+		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -359,7 +389,11 @@ func ProvideSystemOperationLockService(repo IdempotencyRepository, cfg *config.C
 
 func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Config) *IdempotencyCleanupService {
 	svc := NewIdempotencyCleanupService(repo, cfg)
-	svc.Start()
+	if backgroundWorkersDisabled(cfg) {
+		logger.LegacyPrintf("service.idempotency_cleanup", "[IdempotencyCleanup] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -380,7 +414,11 @@ func ProvideScheduledTestRunnerService(
 	cfg *config.Config,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
-	svc.Start()
+	if backgroundWorkersDisabled(cfg) {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -413,7 +451,11 @@ func ProvideBackupService(
 	dumper DBDumper,
 ) *BackupService {
 	svc := NewBackupService(settingRepo, cfg, encryptor, storeFactory, dumper)
-	svc.Start()
+	if backgroundWorkersDisabled(cfg) {
+		logger.LegacyPrintf("service.backup", "[Backup] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -599,7 +641,11 @@ var ProviderSet = wire.NewSet(
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
 func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, quotaRepo UserPlatformQuotaRepository, tw *TimingWheelService) *UserPlatformQuotaUsageFlusher {
 	svc := NewUserPlatformQuotaUsageFlusher(cfg, cache, quotaRepo, tw)
-	svc.Start()
+	if backgroundWorkersDisabled(cfg) {
+		logger.LegacyPrintf("quota_flusher", "[QuotaFlusher] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -627,7 +673,11 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache LeaderLockCache, db *sql.DB) *PaymentOrderExpiryService {
 	svc := NewPaymentOrderExpiryService(paymentSvc, 60*time.Second)
 	svc.SetLeaderLock(lockCache, db)
-	svc.Start()
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.payment_order_expiry", "[PaymentOrderExpiry] background worker disabled by dev config")
+	} else {
+		svc.Start()
+	}
 	return svc
 }
 
@@ -646,6 +696,10 @@ func ProvideChannelMonitorService(
 // settingService 用于 runner 每次 fire 读取功能开关。
 func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *SettingService) *ChannelMonitorRunner {
 	r := NewChannelMonitorRunner(svc, settingService)
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.channel_monitor_runner", "[ChannelMonitorRunner] background worker disabled by dev config")
+		return r
+	}
 	svc.SetScheduler(r)
 	r.Start()
 	return r
