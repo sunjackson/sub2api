@@ -99,7 +99,7 @@ type AffiliateRepository interface {
 	GetAffiliateByCode(ctx context.Context, code string) (*AffiliateSummary, error)
 	BindInviter(ctx context.Context, userID, inviterID int64) (bool, error)
 	GrantRegistrationReward(ctx context.Context, inviterID, inviteeUserID int64, amount float64) (bool, error)
-	AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error)
+	AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64, sourceRef string, sourceAmount *float64) (bool, error)
 	GetAccruedRebateFromInvitee(ctx context.Context, inviterID, inviteeUserID int64) (float64, error)
 	ThawFrozenQuota(ctx context.Context, userID int64) (float64, error)
 	TransferQuotaToBalance(ctx context.Context, userID int64) (float64, float64, error)
@@ -324,6 +324,15 @@ func (s *AffiliateService) AccrueInviteRebate(ctx context.Context, inviteeUserID
 }
 
 func (s *AffiliateService) AccrueInviteRebateForOrder(ctx context.Context, inviteeUserID int64, baseRechargeAmount float64, sourceOrderID *int64) (float64, error) {
+	return s.accrueInviteRebate(ctx, inviteeUserID, baseRechargeAmount, sourceOrderID, "", nil)
+}
+
+func (s *AffiliateService) AccrueInviteRebateForRedeem(ctx context.Context, inviteeUserID int64, baseRechargeAmount float64, redeemCode string) (float64, error) {
+	sourceAmount := baseRechargeAmount
+	return s.accrueInviteRebate(ctx, inviteeUserID, baseRechargeAmount, nil, redeemCode, &sourceAmount)
+}
+
+func (s *AffiliateService) accrueInviteRebate(ctx context.Context, inviteeUserID int64, baseRechargeAmount float64, sourceOrderID *int64, sourceRef string, sourceAmount *float64) (float64, error) {
 	if s == nil || s.repo == nil {
 		return 0, nil
 	}
@@ -384,7 +393,7 @@ func (s *AffiliateService) AccrueInviteRebateForOrder(ctx context.Context, invit
 		freezeHours = s.settingService.GetAffiliateRebateFreezeHours(ctx)
 	}
 
-	applied, err := s.repo.AccrueQuota(ctx, *inviteeSummary.InviterID, inviteeUserID, rebate, freezeHours, sourceOrderID)
+	applied, err := s.repo.AccrueQuota(ctx, *inviteeSummary.InviterID, inviteeUserID, rebate, freezeHours, sourceOrderID, sourceRef, sourceAmount)
 	if err != nil {
 		return 0, err
 	}

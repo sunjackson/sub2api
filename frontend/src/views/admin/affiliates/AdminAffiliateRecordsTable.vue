@@ -61,6 +61,10 @@
               <div class="text-sm font-medium text-emerald-600 dark:text-emerald-400">{{ t('admin.affiliates.records.registrationReward') }}</div>
               <div class="text-sm text-gray-500 dark:text-dark-400">{{ t('admin.affiliates.records.noOrder') }}</div>
             </div>
+            <div v-else-if="isRedeemRebate(row)" class="space-y-0.5">
+              <div class="text-sm font-medium text-emerald-600 dark:text-emerald-400">{{ t('admin.affiliates.records.redeemRebate') }}</div>
+              <div class="max-w-56 truncate font-mono text-sm text-gray-700 dark:text-gray-300">{{ row.out_trade_no || '-' }}</div>
+            </div>
             <div v-else class="space-y-0.5">
               <div class="font-mono text-sm text-gray-900 dark:text-white">#{{ row.order_id }}</div>
               <div class="max-w-56 truncate text-sm text-gray-500 dark:text-dark-400">{{ row.out_trade_no }}</div>
@@ -68,6 +72,7 @@
           </template>
           <template #cell-payment_type="{ row }">
             <span v-if="isRegistrationReward(row)">{{ t('admin.affiliates.records.registrationReward') }}</span>
+            <span v-else-if="isRedeemRebate(row)">{{ t('payment.methods.redeem') }}</span>
             <span v-else>{{ t('payment.methods.' + row.payment_type, row.payment_type || '-') }}</span>
           </template>
           <template #cell-order_status="{ row }">
@@ -82,7 +87,7 @@
             <AmountText v-else :value="row.order_amount" />
           </template>
           <template #cell-pay_amount="{ row }">
-            <span v-if="isRegistrationReward(row)" class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <span v-if="isRegistrationReward(row) || isRedeemRebate(row)" class="text-sm text-gray-400 dark:text-dark-500">-</span>
             <span v-else class="text-sm text-gray-900 dark:text-white">¥{{ formatAmount(row.pay_amount) }}</span>
           </template>
           <template #cell-rebate_amount="{ row }">
@@ -326,6 +331,10 @@ function formatDateTime(value: string | null | undefined): string {
 
 function isRegistrationReward(row: AffiliateRecord): boolean {
   return 'rebate_type' in row && row.rebate_type === 'registration_reward'
+}
+
+function isRedeemRebate(row: AffiliateRecord): boolean {
+  return 'rebate_type' in row && row.rebate_type === 'accrue' && row.payment_type === 'redeem'
 }
 
 async function openUserOverview(userId: number) {

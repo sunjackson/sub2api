@@ -193,7 +193,7 @@ VALUES ($1, 'registration_reward', $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
 	return applied, nil
 }
 
-func (r *affiliateRepository) AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error) {
+func (r *affiliateRepository) AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64, sourceRef string, sourceAmount *float64) (bool, error) {
 	if amount <= 0 {
 		return false, nil
 	}
@@ -219,15 +219,15 @@ func (r *affiliateRepository) AccrueQuota(ctx context.Context, inviterID, invite
 
 		if freezeHours > 0 {
 			if _, err = txClient.ExecContext(txCtx, `
-INSERT INTO user_affiliate_ledger (user_id, action, amount, source_user_id, source_order_id, frozen_until, created_at, updated_at)
-VALUES ($1, 'accrue', $2, $3, $4, NOW() + make_interval(hours => $5), NOW(), NOW())`,
-				inviterID, amount, inviteeUserID, nullableInt64Arg(sourceOrderID), freezeHours); err != nil {
+	INSERT INTO user_affiliate_ledger (user_id, action, amount, source_user_id, source_order_id, source_ref, source_amount, frozen_until, created_at, updated_at)
+	VALUES ($1, 'accrue', $2, $3, $4, NULLIF($5, ''), $6, NOW() + make_interval(hours => $7), NOW(), NOW())`,
+				inviterID, amount, inviteeUserID, nullableInt64Arg(sourceOrderID), strings.TrimSpace(sourceRef), nullableFloat64Arg(sourceAmount), freezeHours); err != nil {
 				return fmt.Errorf("insert affiliate accrue ledger: %w", err)
 			}
 		} else {
 			if _, err = txClient.ExecContext(txCtx, `
-INSERT INTO user_affiliate_ledger (user_id, action, amount, source_user_id, source_order_id, created_at, updated_at)
-VALUES ($1, 'accrue', $2, $3, $4, NOW(), NOW())`, inviterID, amount, inviteeUserID, nullableInt64Arg(sourceOrderID)); err != nil {
+	INSERT INTO user_affiliate_ledger (user_id, action, amount, source_user_id, source_order_id, source_ref, source_amount, created_at, updated_at)
+	VALUES ($1, 'accrue', $2, $3, $4, NULLIF($5, ''), $6, NOW(), NOW())`, inviterID, amount, inviteeUserID, nullableInt64Arg(sourceOrderID), strings.TrimSpace(sourceRef), nullableFloat64Arg(sourceAmount)); err != nil {
 				return fmt.Errorf("insert affiliate accrue ledger: %w", err)
 			}
 		}
@@ -543,7 +543,7 @@ func (r *affiliateRepository) ListAffiliateRebateRecords(ctx context.Context, fi
 	client := clientFromContext(ctx, r.client)
 	where, args := buildAffiliateRecordWhere(filter, "ual.created_at", []string{
 		"inviter.email", "inviter.username", "invitee.email", "invitee.username",
-		"po.id::text", "po.out_trade_no", "po.payment_type", "po.status", "ual.action", "ual.id::text",
+		"po.id::text", "po.out_trade_no", "po.payment_type", "po.status", "ual.action", "ual.id::text", "ual.source_ref",
 	})
 	baseJoin := `
 FROM user_affiliate_ledger ual
@@ -551,7 +551,7 @@ LEFT JOIN payment_orders po ON po.id = ual.source_order_id
 JOIN users invitee ON invitee.id = ual.source_user_id
 JOIN users inviter ON inviter.id = ual.user_id
 WHERE (
-  (ual.action = 'accrue' AND ual.source_order_id IS NOT NULL)
+  (ual.action = 'accrue' AND (ual.source_order_id IS NOT NULL OR ual.source_ref IS NOT NULL))
   OR ual.action = 'registration_reward'
 )`
 	if where != "" {
@@ -567,17 +567,17 @@ WHERE (
 		"order":         "COALESCE(po.id, 0)",
 		"inviter":       "inviter.email",
 		"invitee":       "invitee.email",
-		"order_amount":  "COALESCE(po.amount, 0)",
+		"order_amount":  "COALESCE(po.amount, ual.source_amount, 0)",
 		"pay_amount":    "COALESCE(po.pay_amount, 0)",
 		"rebate_amount": "ual.amount",
-		"payment_type":  "COALESCE(po.payment_type, ual.action)",
+		"payment_type":  "COALESCE(po.payment_type, CASE WHEN ual.action = 'accrue' AND ual.source_ref IS NOT NULL THEN 'redeem' ELSE ual.action END)",
 		"order_status":  "COALESCE(po.status, 'completed')",
 		"created_at":    "ual.created_at",
 	}, "ual.created_at")
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	rows, err := client.QueryContext(ctx, `
 SELECT COALESCE(po.id, 0),
-       COALESCE(po.out_trade_no, ''),
+       COALESCE(po.out_trade_no, ual.source_ref, ''),
        ual.action,
        ual.user_id,
        COALESCE(inviter.email, ''),
@@ -585,10 +585,13 @@ SELECT COALESCE(po.id, 0),
        ual.source_user_id,
        COALESCE(invitee.email, ''),
        COALESCE(invitee.username, ''),
-       COALESCE(po.amount, 0)::double precision,
+       COALESCE(po.amount, ual.source_amount, 0)::double precision,
        COALESCE(po.pay_amount, 0)::double precision,
        ual.amount::double precision,
-       COALESCE(po.payment_type, ual.action),
+       CASE
+           WHEN po.id IS NULL AND ual.action = 'accrue' AND ual.source_ref IS NOT NULL THEN 'redeem'
+           ELSE COALESCE(po.payment_type, ual.action)
+       END,
        COALESCE(po.status, 'completed'),
        ual.created_at
 `+baseJoin+where+`
@@ -1252,6 +1255,13 @@ func nullableArg(v *float64) any {
 }
 
 func nullableInt64Arg(v *int64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func nullableFloat64Arg(v *float64) any {
 	if v == nil {
 		return nil
 	}

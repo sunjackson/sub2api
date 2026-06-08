@@ -91,6 +91,11 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.settings')").Scan(&settingsRegclass))
 	require.True(t, settingsRegclass.Valid, "expected settings table to exist")
 
+	// affiliate ledger: non-payment source audit fields
+	requireColumn(t, tx, "user_affiliate_ledger", "source_ref", "character varying", 128, true)
+	requireColumn(t, tx, "user_affiliate_ledger", "source_amount", "numeric", 0, true)
+	requireIndex(t, tx, "user_affiliate_ledger", "idx_user_affiliate_ledger_source_ref")
+
 	// security_secrets table should exist
 	var securitySecretsRegclass sql.NullString
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.security_secrets')").Scan(&securitySecretsRegclass))

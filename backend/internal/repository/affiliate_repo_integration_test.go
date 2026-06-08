@@ -275,7 +275,7 @@ func TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, bound, "invitee must bind to inviter")
 
-	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 3.5, 0, nil)
+	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 3.5, 0, nil, "", nil)
 	require.NoError(t, err)
 	require.True(t, applied, "AccrueQuota must report applied=true")
 
@@ -298,6 +298,66 @@ func TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction(t *testing.T) {
 	require.NoError(t, rows.Scan(&postRollbackCount))
 	require.Equal(t, 0, postRollbackCount,
 		"AccrueQuota must propagate the outer tx — found persisted rows after rollback")
+}
+
+func TestAffiliateRepository_ListRebateRecords_IncludesRedeemSourceRef(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	txCtx := dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+
+	repo := NewAffiliateRepository(client, integrationDB)
+
+	inviter := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-redeem-inviter-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+	invitee := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-redeem-invitee-%d@example.com", time.Now().UnixNano()+1),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+
+	_, err := repo.EnsureUserAffiliate(txCtx, inviter.ID)
+	require.NoError(t, err)
+	_, err = repo.EnsureUserAffiliate(txCtx, invitee.ID)
+	require.NoError(t, err)
+	bound, err := repo.BindInviter(txCtx, invitee.ID, inviter.ID)
+	require.NoError(t, err)
+	require.True(t, bound)
+
+	redeemAmount := 25.0
+	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 2.5, 0, nil, "VIP-REDEEM-001", &redeemAmount)
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	records, total, err := repo.ListAffiliateRebateRecords(txCtx, service.AffiliateRecordFilter{
+		Page:     1,
+		PageSize: 10,
+		Search:   "VIP-REDEEM-001",
+		SortBy:   "created_at",
+		SortDesc: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, records, 1)
+
+	record := records[0]
+	require.Equal(t, int64(0), record.OrderID)
+	require.Equal(t, "VIP-REDEEM-001", record.OutTradeNo)
+	require.Equal(t, "accrue", record.RebateType)
+	require.Equal(t, inviter.ID, record.InviterID)
+	require.Equal(t, invitee.ID, record.InviteeID)
+	require.InDelta(t, 25.0, record.OrderAmount, 1e-9)
+	require.InDelta(t, 0.0, record.PayAmount, 1e-9)
+	require.InDelta(t, 2.5, record.RebateAmount, 1e-9)
+	require.Equal(t, "redeem", record.PaymentType)
+	require.Equal(t, "completed", record.OrderStatus)
 }
 
 func TestAffiliateRepository_TransferQuotaToBalance_EmptyQuota(t *testing.T) {
