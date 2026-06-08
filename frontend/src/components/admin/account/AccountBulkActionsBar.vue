@@ -30,9 +30,9 @@
         <button @click="$emit('toggle-schedulable', true)" class="btn btn-success btn-sm">{{ t('admin.accounts.bulkActions.enableScheduling') }}</button>
         <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
-        <button @click="$emit('check-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.checkStatus') }}</button>
-        <button @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
       </template>
+      <button @click="$emit('check-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.checkStatus') }}</button>
+      <button @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
       <button @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
         {{ t('admin.accounts.bulkEdit.submit') }}
       </button>

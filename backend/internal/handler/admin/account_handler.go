@@ -159,6 +159,11 @@ type BulkUpdateAccountFilters struct {
 	PrivacyMode string `json:"privacy_mode"`
 }
 
+type BatchAccountTargetRequest struct {
+	AccountIDs []int64                   `json:"account_ids"`
+	Filters    *BulkUpdateAccountFilters `json:"filters"`
+}
+
 // CheckMixedChannelRequest represents check mixed channel risk request
 type CheckMixedChannelRequest struct {
 	Platform  string  `json:"platform" binding:"required"`
@@ -1218,15 +1223,13 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 // BatchStatusCheck handles batch checking account usage status and syncing exhausted windows.
 // POST /api/v1/admin/accounts/batch-status-check
 func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
-	var req struct {
-		AccountIDs []int64 `json:"account_ids"`
-	}
+	var req BatchAccountTargetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if len(req.AccountIDs) == 0 {
-		response.BadRequest(c, "account_ids is required")
+	if len(req.AccountIDs) == 0 && req.Filters == nil {
+		response.BadRequest(c, "account_ids or filters is required")
 		return
 	}
 	if h.accountUsageService == nil {
@@ -1235,7 +1238,17 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	accounts, err := h.adminService.GetAccountsByIDs(ctx, req.AccountIDs)
+	accountIDs := req.AccountIDs
+	if len(accountIDs) == 0 && req.Filters != nil {
+		resolvedIDs, err := h.adminService.ResolveAccountTargetIDs(ctx, toServiceBulkUpdateAccountFilters(req.Filters))
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		accountIDs = resolvedIDs
+	}
+
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, accountIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1257,9 +1270,9 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 	failedCount := 0
 	rateLimitedCount := 0
 	errors := make([]gin.H, 0)
-	results := make([]gin.H, 0, len(req.AccountIDs))
+	results := make([]gin.H, 0, len(accountIDs))
 
-	for _, id := range req.AccountIDs {
+	for _, id := range accountIDs {
 		if !foundIDs[id] {
 			failedCount++
 			errors = append(errors, gin.H{
@@ -1344,7 +1357,7 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"total":        len(req.AccountIDs),
+		"total":        len(accountIDs),
 		"success":      successCount,
 		"failed":       failedCount,
 		"rate_limited": rateLimitedCount,
@@ -1383,6 +1396,71 @@ func exhaustedUsageResetAt(usage *service.UsageInfo, now time.Time) (*time.Time,
 		}
 	}
 	return resetAt, limitedWindows
+}
+
+// BatchDelete handles batch deleting accounts by selected IDs or current filters.
+// POST /api/v1/admin/accounts/batch-delete
+func (h *AccountHandler) BatchDelete(c *gin.Context) {
+	var req BatchAccountTargetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if len(req.AccountIDs) == 0 && req.Filters == nil {
+		response.BadRequest(c, "account_ids or filters is required")
+		return
+	}
+
+	ctx := c.Request.Context()
+	accountIDs := req.AccountIDs
+	if len(accountIDs) == 0 && req.Filters != nil {
+		resolvedIDs, err := h.adminService.ResolveAccountTargetIDs(ctx, toServiceBulkUpdateAccountFilters(req.Filters))
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		accountIDs = resolvedIDs
+	}
+
+	successCount := 0
+	failedCount := 0
+	successIDs := make([]int64, 0, len(accountIDs))
+	failedIDs := make([]int64, 0)
+	errors := make([]gin.H, 0)
+	results := make([]gin.H, 0, len(accountIDs))
+
+	for _, accountID := range accountIDs {
+		if err := h.adminService.DeleteAccount(ctx, accountID); err != nil {
+			failedCount++
+			failedIDs = append(failedIDs, accountID)
+			errors = append(errors, gin.H{
+				"account_id": accountID,
+				"error":      err.Error(),
+			})
+			results = append(results, gin.H{
+				"account_id": accountID,
+				"success":    false,
+				"error":      err.Error(),
+			})
+			continue
+		}
+		successCount++
+		successIDs = append(successIDs, accountID)
+		results = append(results, gin.H{
+			"account_id": accountID,
+			"success":    true,
+		})
+	}
+
+	response.Success(c, gin.H{
+		"total":       len(accountIDs),
+		"success":     successCount,
+		"failed":      failedCount,
+		"success_ids": successIDs,
+		"failed_ids":  failedIDs,
+		"errors":      errors,
+		"results":     results,
+	})
 }
 
 // BatchRefresh handles batch refreshing account credentials

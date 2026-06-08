@@ -1228,31 +1228,52 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-const handleBulkDelete = async () => {
+type AccountBatchOperationTarget =
+  | { mode: 'selected'; accountIds: number[]; count: number }
+  | { mode: 'filtered'; filters: ReturnType<typeof buildBulkEditFilterSnapshot>; count: number }
+
+const buildBulkOperationTarget = async (): Promise<AccountBatchOperationTarget | null> => {
   const accountIds = [...selIds.value]
-  if (accountIds.length === 0) return
-  if (!confirm(t('admin.accounts.bulkDeleteConfirm', { count: accountIds.length }))) return
-  let success = 0
-  let failed = 0
-  const failedIds: number[] = []
-  await Promise.all(accountIds.map(async (id) => {
-    try {
-      await adminAPI.accounts.delete(id)
-      success++
-    } catch (error) {
-      failed++
-      failedIds.push(id)
-      console.error(`Failed to delete account ${id}:`, error)
-    }
-  }))
-  if (failed > 0) {
-    appStore.showError(t('admin.accounts.bulkDeletePartial', { success, failed }))
-    setSelectedIds(failedIds)
-  } else {
-    appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: success }))
-    clearSelection()
+  if (accountIds.length > 0) {
+    return { mode: 'selected', accountIds, count: accountIds.length }
   }
-  reload()
+  const filters = buildBulkEditFilterSnapshot()
+  const preview = await adminAPI.accounts.list(1, 1, filters)
+  if (preview.total <= 0) {
+    appStore.showError(t('admin.accounts.bulkActions.noFilteredAccounts'))
+    return null
+  }
+  return { mode: 'filtered', filters, count: preview.total }
+}
+
+const accountBatchTargetPayload = (target: AccountBatchOperationTarget) => (
+  target.mode === 'selected' ? target.accountIds : { filters: target.filters }
+)
+
+const handleBulkDelete = async () => {
+  const target = await buildBulkOperationTarget()
+  if (!target) return
+  const message = target.mode === 'selected'
+    ? t('admin.accounts.bulkDeleteConfirm', { count: target.count })
+    : t('admin.accounts.bulkDeleteFilteredConfirm', { count: target.count })
+  if (!confirm(message)) return
+  try {
+    const result = await adminAPI.accounts.batchDelete(accountBatchTargetPayload(target))
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkDeletePartial', { success: result.success, failed: result.failed }))
+      if (target.mode === 'selected') {
+        const failedIds = result.failed_ids ?? result.results?.filter(item => !item.success).map(item => item.account_id) ?? []
+        setSelectedIds(failedIds.length > 0 ? failedIds : target.accountIds)
+      }
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkDeleteSuccess', { count: result.success }))
+      clearSelection()
+    }
+    reload()
+  } catch (error) {
+    console.error('Failed to bulk delete accounts:', error)
+    appStore.showError(String(error))
+  }
 }
 const handleBulkResetStatus = async () => {
   if (!confirm(t('common.confirm'))) return
@@ -1287,11 +1308,14 @@ const handleBulkRefreshToken = async () => {
   }
 }
 const handleBulkStatusCheck = async () => {
-  const accountIds = [...selIds.value]
-  if (accountIds.length === 0) return
-  if (!confirm(t('admin.accounts.bulkActions.checkStatusConfirm', { count: accountIds.length }))) return
+  const target = await buildBulkOperationTarget()
+  if (!target) return
+  const message = target.mode === 'selected'
+    ? t('admin.accounts.bulkActions.checkStatusConfirm', { count: target.count })
+    : t('admin.accounts.bulkActions.checkStatusFilteredConfirm', { count: target.count })
+  if (!confirm(message)) return
   try {
-    const result = await adminAPI.accounts.batchStatusCheck(accountIds)
+    const result = await adminAPI.accounts.batchStatusCheck(accountBatchTargetPayload(target))
     const rateLimitedCount = result.rate_limited ?? 0
     if (result.failed > 0) {
       appStore.showError(t('admin.accounts.bulkActions.checkStatusPartial', {
@@ -1299,8 +1323,10 @@ const handleBulkStatusCheck = async () => {
         failed: result.failed,
         rateLimited: rateLimitedCount
       }))
-      const failedIds = result.results?.filter(item => !item.success).map(item => item.account_id) ?? []
-      setSelectedIds(failedIds.length > 0 ? failedIds : accountIds)
+      if (target.mode === 'selected') {
+        const failedIds = result.results?.filter(item => !item.success).map(item => item.account_id) ?? []
+        setSelectedIds(failedIds.length > 0 ? failedIds : target.accountIds)
+      }
     } else {
       appStore.showSuccess(t('admin.accounts.bulkActions.checkStatusSuccess', {
         count: result.success,

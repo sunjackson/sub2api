@@ -671,6 +671,14 @@ export interface BatchStatusCheckResult extends BatchOperationResult {
   }>
 }
 
+type AccountBatchTargetPayload = number[] | {
+  filters: Record<string, unknown>
+}
+
+function buildAccountBatchTargetPayload(target: AccountBatchTargetPayload): { account_ids?: number[]; filters?: Record<string, unknown> } {
+  return Array.isArray(target) ? { account_ids: target } : target
+}
+
 /**
  * Revert account proxy to original before fallback
  * @param id - Account ID
@@ -695,13 +703,31 @@ export async function batchClearError(accountIds: number[]): Promise<BatchOperat
 
 /**
  * Batch check account usage status and sync exhausted windows to account rate limit state.
- * @param accountIds - Array of account IDs
+ * @param target - Account IDs or filter target
  * @returns Batch status check result
  */
-export async function batchStatusCheck(accountIds: number[]): Promise<BatchStatusCheckResult> {
-  const { data } = await apiClient.post<BatchStatusCheckResult>('/admin/accounts/batch-status-check', {
-    account_ids: accountIds
-  }, {
+export async function batchStatusCheck(target: AccountBatchTargetPayload): Promise<BatchStatusCheckResult> {
+  const { data } = await apiClient.post<BatchStatusCheckResult>('/admin/accounts/batch-status-check', buildAccountBatchTargetPayload(target), {
+    timeout: 180000
+  })
+  return data
+}
+
+/**
+ * Batch delete accounts by selected IDs or current filters.
+ * @param target - Account IDs or filter target
+ * @returns Batch operation result
+ */
+export async function batchDelete(target: AccountBatchTargetPayload): Promise<BatchOperationResult & {
+  success_ids?: number[]
+  failed_ids?: number[]
+  results?: Array<{ account_id: number; success: boolean; error?: string }>
+}> {
+  const { data } = await apiClient.post<BatchOperationResult & {
+    success_ids?: number[]
+    failed_ids?: number[]
+    results?: Array<{ account_id: number; success: boolean; error?: string }>
+  }>('/admin/accounts/batch-delete', buildAccountBatchTargetPayload(target), {
     timeout: 180000
   })
   return data
@@ -771,6 +797,7 @@ export const accountsAPI = {
   getAntigravityDefaultModelMapping,
   batchClearError,
   batchStatusCheck,
+  batchDelete,
   batchRefresh,
   setPrivacy,
   revertProxyFallback

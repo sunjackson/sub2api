@@ -76,6 +76,7 @@ type AdminService interface {
 	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error)
 	GetAccount(ctx context.Context, id int64) (*Account, error)
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
+	ResolveAccountTargetIDs(ctx context.Context, filters *BulkUpdateAccountFilters) ([]int64, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
 	// UpdateAccountExtra 仅对 Extra 做 JSONB 增量合并（key 级覆盖），不会影响其它字段或运行态键。
@@ -2811,7 +2812,7 @@ func (s *adminServiceImpl) SetAccountRateLimited(ctx context.Context, id int64, 
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
-		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
+		accountIDs, err := s.ResolveAccountTargetIDs(ctx, input.Filters)
 		if err != nil {
 			return nil, err
 		}
@@ -2933,7 +2934,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	return result, nil
 }
 
-func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filters *BulkUpdateAccountFilters) ([]int64, error) {
+func (s *adminServiceImpl) ResolveAccountTargetIDs(ctx context.Context, filters *BulkUpdateAccountFilters) ([]int64, error) {
 	if filters == nil {
 		return nil, nil
 	}

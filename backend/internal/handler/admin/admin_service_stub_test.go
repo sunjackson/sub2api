@@ -341,6 +341,21 @@ func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return out, nil
 }
 
+func (s *stubAdminService) ResolveAccountTargetIDs(ctx context.Context, filters *service.BulkUpdateAccountFilters) ([]int64, error) {
+	if filters == nil {
+		return nil, nil
+	}
+	accounts, _, err := s.ListAccounts(ctx, 1, 500, filters.Platform, filters.Type, filters.Status, filters.Search, 0, filters.PrivacyMode, "", "")
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	return ids, nil
+}
+
 func (s *stubAdminService) CreateAccount(ctx context.Context, input *service.CreateAccountInput) (*service.Account, error) {
 	s.mu.Lock()
 	s.createdAccounts = append(s.createdAccounts, input)
