@@ -10,27 +10,32 @@ import (
 )
 
 type stubAdminService struct {
-	users                []service.User
-	apiKeys              []service.APIKey
-	groups               []service.Group
-	accounts             []service.Account
-	proxies              []service.Proxy
-	proxyCounts          []service.ProxyWithAccountCount
-	redeems              []service.RedeemCode
-	boundAuthIdentity    *service.AdminBindAuthIdentityInput
-	boundAuthIdentityFor int64
-	createdAccounts      []*service.CreateAccountInput
-	createdProxies       []*service.CreateProxyInput
-	updatedProxyIDs      []int64
-	updatedProxies       []*service.UpdateProxyInput
-	testedProxyIDs       []int64
-	accountErrors        map[int64]string
-	getUserErr           error
-	createAccountErr     error
-	updateAccountErr     error
-	bulkUpdateAccountErr error
-	checkMixedErr        error
-	lastMixedCheck       struct {
+	users                 []service.User
+	apiKeys               []service.APIKey
+	groups                []service.Group
+	accounts              []service.Account
+	proxies               []service.Proxy
+	proxyCounts           []service.ProxyWithAccountCount
+	redeems               []service.RedeemCode
+	boundAuthIdentity     *service.AdminBindAuthIdentityInput
+	boundAuthIdentityFor  int64
+	createdAccounts       []*service.CreateAccountInput
+	createdProxies        []*service.CreateProxyInput
+	updatedProxyIDs       []int64
+	updatedProxies        []*service.UpdateProxyInput
+	testedProxyIDs        []int64
+	accountErrors         map[int64]string
+	clearedAccountIDs     []int64
+	clearAccountErr       error
+	rateLimitedAccountIDs []int64
+	rateLimitResetAtByID  map[int64]time.Time
+	setRateLimitedErr     error
+	getUserErr            error
+	createAccountErr      error
+	updateAccountErr      error
+	bulkUpdateAccountErr  error
+	checkMixedErr         error
+	lastMixedCheck        struct {
 		accountID int64
 		platform  string
 		groupIDs  []int64
@@ -381,6 +386,16 @@ func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, upd
 }
 
 func (s *stubAdminService) SetAccountRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.setRateLimitedErr != nil {
+		return s.setRateLimitedErr
+	}
+	s.rateLimitedAccountIDs = append(s.rateLimitedAccountIDs, id)
+	if s.rateLimitResetAtByID == nil {
+		s.rateLimitResetAtByID = make(map[int64]time.Time)
+	}
+	s.rateLimitResetAtByID[id] = resetAt
 	return nil
 }
 
@@ -394,6 +409,12 @@ func (s *stubAdminService) RefreshAccountCredentials(ctx context.Context, id int
 }
 
 func (s *stubAdminService) ClearAccountError(ctx context.Context, id int64) (*service.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.clearAccountErr != nil {
+		return nil, s.clearAccountErr
+	}
+	s.clearedAccountIDs = append(s.clearedAccountIDs, id)
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
 	return &account, nil
 }

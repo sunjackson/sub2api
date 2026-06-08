@@ -1328,7 +1328,7 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 			continue
 		}
 		g.Go(func() error {
-			_, tokenRefreshAttempted, warning, refreshErr := h.refreshAccountTokenForStatusCheck(gctx, acc)
+			checkedAccount, tokenRefreshAttempted, warning, refreshErr := h.refreshAccountTokenForStatusCheck(gctx, acc)
 			if refreshErr != nil {
 				mu.Lock()
 				failedCount++
@@ -1345,6 +1345,9 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 				})
 				mu.Unlock()
 				return nil
+			}
+			if checkedAccount == nil {
+				checkedAccount = acc
 			}
 
 			if h.accountUsageService != nil {
@@ -1374,32 +1377,32 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 
 			resetAt, windows := exhaustedUsageResetAt(usage, time.Now())
 			rateLimited := resetAt != nil
-			if resetAt != nil {
-				if err := h.adminService.SetAccountRateLimited(gctx, acc.ID, *resetAt); err != nil {
-					mu.Lock()
-					failedCount++
-					if tokenRefreshAttempted {
-						recordTokenRefreshSuccessLocked(acc.ID, warning)
-					}
-					errors = append(errors, gin.H{
-						"account_id": acc.ID,
-						"error":      err.Error(),
-					})
-					results = append(results, gin.H{
-						"account_id":      acc.ID,
-						"success":         false,
-						"token_refreshed": tokenRefreshAttempted,
-						"error":           err.Error(),
-					})
-					mu.Unlock()
-					return nil
+			statusUpdated, err := persistBatchStatusCheckAccountState(gctx, h.adminService, checkedAccount, resetAt)
+			if err != nil {
+				mu.Lock()
+				failedCount++
+				if tokenRefreshAttempted {
+					recordTokenRefreshSuccessLocked(acc.ID, warning)
 				}
+				errors = append(errors, gin.H{
+					"account_id": acc.ID,
+					"error":      err.Error(),
+				})
+				results = append(results, gin.H{
+					"account_id":      acc.ID,
+					"success":         false,
+					"token_refreshed": tokenRefreshAttempted,
+					"error":           err.Error(),
+				})
+				mu.Unlock()
+				return nil
 			}
 
 			result := gin.H{
 				"account_id":      acc.ID,
 				"success":         true,
 				"rate_limited":    rateLimited,
+				"status_updated":  statusUpdated,
 				"token_refreshed": tokenRefreshAttempted,
 				"windows":         windows,
 			}
@@ -1437,6 +1440,63 @@ func (h *AccountHandler) BatchStatusCheck(c *gin.Context) {
 		"warnings":             warnings,
 		"results":              results,
 	})
+}
+
+func persistBatchStatusCheckAccountState(ctx context.Context, adminService service.AdminService, account *service.Account, resetAt *time.Time) (bool, error) {
+	if adminService == nil || account == nil {
+		return false, nil
+	}
+
+	updated := false
+	if shouldClearRecoveredStatusAfterStatusCheck(account) {
+		if _, err := adminService.ClearAccountError(ctx, account.ID); err != nil {
+			return updated, err
+		}
+		updated = true
+	}
+
+	if resetAt != nil {
+		if err := adminService.SetAccountRateLimited(ctx, account.ID, *resetAt); err != nil {
+			return updated, err
+		}
+		updated = true
+	}
+
+	return updated, nil
+}
+
+func shouldClearRecoveredStatusAfterStatusCheck(account *service.Account) bool {
+	if account == nil {
+		return false
+	}
+	if account.Status == service.StatusError {
+		return true
+	}
+	if account.Status != service.StatusActive {
+		return false
+	}
+	if account.RateLimitedAt != nil || account.RateLimitResetAt != nil || account.OverloadUntil != nil || account.TempUnschedulableUntil != nil {
+		return true
+	}
+	return hasNonEmptyAccountRuntimeMap(account.Extra, "model_rate_limits") ||
+		hasNonEmptyAccountRuntimeMap(account.Extra, "antigravity_quota_scopes")
+}
+
+func hasNonEmptyAccountRuntimeMap(extra map[string]any, key string) bool {
+	raw, ok := extra[key]
+	if !ok || raw == nil {
+		return false
+	}
+	switch typed := raw.(type) {
+	case map[string]any:
+		return len(typed) > 0
+	case map[string]string:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
+	default:
+		return true
+	}
 }
 
 func exhaustedUsageResetAt(usage *service.UsageInfo, now time.Time) (*time.Time, []string) {
