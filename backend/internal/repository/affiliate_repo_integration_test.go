@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -298,6 +299,82 @@ func TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction(t *testing.T) {
 	require.NoError(t, rows.Scan(&postRollbackCount))
 	require.Equal(t, 0, postRollbackCount,
 		"AccrueQuota must propagate the outer tx — found persisted rows after rollback")
+}
+
+func TestAffiliateRepository_BindInviterRejectsGmailAliasSelfReferral(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	txCtx := dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+
+	repo := NewAffiliateRepository(client, integrationDB)
+
+	suffix := time.Now().UnixNano()
+	inviter := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("blossom.buttkc.%d@gmail.com", suffix),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+	baseLocal := strings.Split(inviter.Email, "@")[0]
+	invitee := mustCreateUser(t, client, &service.User{
+		Email:        strings.ReplaceAll(baseLocal, ".", "") + "+5@googlemail.com",
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+
+	_, err := repo.EnsureUserAffiliate(txCtx, inviter.ID)
+	require.NoError(t, err)
+	_, err = repo.EnsureUserAffiliate(txCtx, invitee.ID)
+	require.NoError(t, err)
+
+	bound, err := repo.BindInviter(txCtx, invitee.ID, inviter.ID)
+	require.NoError(t, err)
+	require.False(t, bound)
+
+	inviteeSummary, err := repo.EnsureUserAffiliate(txCtx, invitee.ID)
+	require.NoError(t, err)
+	require.Nil(t, inviteeSummary.InviterID)
+	inviterSummary, err := repo.EnsureUserAffiliate(txCtx, inviter.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, inviterSummary.AffCount)
+}
+
+func TestAffiliateRepository_BindInviterAllowsNonGmailPlusAddress(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	txCtx := dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+
+	repo := NewAffiliateRepository(client, integrationDB)
+
+	suffix := time.Now().UnixNano()
+	inviter := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-plus-%d@example.com", suffix),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+	invitee := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-plus-%d+tag@example.com", suffix),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+
+	_, err := repo.EnsureUserAffiliate(txCtx, inviter.ID)
+	require.NoError(t, err)
+	_, err = repo.EnsureUserAffiliate(txCtx, invitee.ID)
+	require.NoError(t, err)
+
+	bound, err := repo.BindInviter(txCtx, invitee.ID, inviter.ID)
+	require.NoError(t, err)
+	require.True(t, bound)
 }
 
 func TestAffiliateRepository_ListRebateRecords_IncludesRedeemSourceRef(t *testing.T) {

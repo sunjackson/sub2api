@@ -72,6 +72,80 @@ func TestUserRepositoryExistsByEmailNormalizesLegacySpacingAndCase(t *testing.T)
 	require.True(t, exists)
 }
 
+func TestUserRepositoryExistsByEmailNormalizesGmailAliases(t *testing.T) {
+	repo, _ := newUserEntRepo(t)
+	ctx := context.Background()
+
+	err := repo.Create(ctx, &service.User{
+		Email:        " Blossom.ButtKC@gmail.com ",
+		Username:     "gmail-user",
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+	})
+	require.NoError(t, err)
+
+	for _, alias := range []string{
+		"blossombuttkc+5@gmail.com",
+		"b.l.o.s.s.o.m.b.u.t.t.k.c+3@googlemail.com",
+		"BLOSSOM.BUTTKC+2@GMAIL.COM",
+	} {
+		exists, err := repo.ExistsByEmail(ctx, alias)
+		require.NoError(t, err, alias)
+		require.True(t, exists, alias)
+
+		got, err := repo.GetByEmail(ctx, alias)
+		require.NoError(t, err, alias)
+		require.Equal(t, " Blossom.ButtKC@gmail.com ", got.Email)
+	}
+}
+
+func TestUserRepositoryCreateRejectsGmailAliasDuplicate(t *testing.T) {
+	repo, _ := newUserEntRepo(t)
+	ctx := context.Background()
+
+	err := repo.Create(ctx, &service.User{
+		Email:        "blossom.buttkc@gmail.com",
+		Username:     "gmail-user",
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+	})
+	require.NoError(t, err)
+
+	err = repo.Create(ctx, &service.User{
+		Email:        "blossombuttkc+5@googlemail.com",
+		Username:     "gmail-alias-user",
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+	})
+	require.ErrorIs(t, err, service.ErrEmailExists)
+}
+
+func TestUserRepositoryCreateAllowsPlusAliasOnNonGmailDomains(t *testing.T) {
+	repo, _ := newUserEntRepo(t)
+	ctx := context.Background()
+
+	err := repo.Create(ctx, &service.User{
+		Email:        "user@example.com",
+		Username:     "base-user",
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+	})
+	require.NoError(t, err)
+
+	err = repo.Create(ctx, &service.User{
+		Email:        "user+tag@example.com",
+		Username:     "plus-user",
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+	})
+	require.NoError(t, err)
+}
+
 func TestUserRepositoryCreateRejectsNormalizedEmailDuplicate(t *testing.T) {
 	repo, _ := newUserEntRepo(t)
 	ctx := context.Background()

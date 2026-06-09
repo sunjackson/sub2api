@@ -87,6 +87,14 @@ func (r *affiliateRepository) BindInviter(ctx context.Context, userID, inviterID
 		if _, err := ensureUserAffiliateWithClient(txCtx, txClient, inviterID); err != nil {
 			return err
 		}
+		sameOwner, err := usersShareAffiliateRewardIdentity(txCtx, txClient, inviterID, userID)
+		if err != nil {
+			return err
+		}
+		if sameOwner {
+			bound = false
+			return nil
+		}
 
 		res, err := txClient.ExecContext(txCtx,
 			"UPDATE user_affiliates SET inviter_id = $1, updated_at = NOW() WHERE user_id = $2 AND inviter_id IS NULL",
@@ -114,6 +122,64 @@ func (r *affiliateRepository) BindInviter(ctx context.Context, userID, inviterID
 		return false, err
 	}
 	return bound, nil
+}
+
+func usersShareAffiliateRewardIdentity(ctx context.Context, client affiliateQueryExecer, firstUserID, secondUserID int64) (bool, error) {
+	if firstUserID <= 0 || secondUserID <= 0 {
+		return false, nil
+	}
+	if firstUserID == secondUserID {
+		return true, nil
+	}
+
+	rows, err := client.QueryContext(ctx, `
+SELECT id, COALESCE(email, '')
+FROM users
+WHERE id IN ($1, $2)
+  AND deleted_at IS NULL`, firstUserID, secondUserID)
+	if err != nil {
+		return false, fmt.Errorf("query affiliate reward identities: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	identities := make(map[int64]string, 2)
+	for rows.Next() {
+		var id int64
+		var email string
+		if err := rows.Scan(&id, &email); err != nil {
+			return false, err
+		}
+		identities[id] = normalizeAffiliateRewardEmailIdentity(email)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	first := identities[firstUserID]
+	second := identities[secondUserID]
+	return first != "" && first == second, nil
+}
+
+func normalizeAffiliateRewardEmailIdentity(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return ""
+	}
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok || local == "" || domain == "" {
+		return email
+	}
+	if domain != "gmail.com" && domain != "googlemail.com" {
+		return email
+	}
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+	local = strings.ReplaceAll(local, ".", "")
+	if local == "" {
+		return email
+	}
+	return local + "@gmail.com"
 }
 
 func (r *affiliateRepository) GrantRegistrationReward(ctx context.Context, inviterID, inviteeUserID int64, amount float64) (bool, error) {

@@ -24,6 +24,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
+	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 )
 
@@ -832,16 +833,33 @@ func userEmailLookupPredicate(email string) predicate.User {
 	}
 	return predicate.User(func(s *entsql.Selector) {
 		s.Where(entsql.P(func(b *entsql.Builder) {
-			b.WriteString("LOWER(TRIM(").
-				Ident(s.C(dbuser.FieldEmail)).
-				WriteString(")) = ").
+			writeNormalizedEmailLookupSQL(b, s, dbuser.FieldEmail).
+				WriteString(" = ").
 				Arg(normalized)
 		}))
 	})
 }
 
 func normalizeEmailLookupValue(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return ""
+	}
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok || local == "" || domain == "" {
+		return email
+	}
+	if domain != "gmail.com" && domain != "googlemail.com" {
+		return email
+	}
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+	local = strings.ReplaceAll(local, ".", "")
+	if local == "" {
+		return email
+	}
+	return local + "@gmail.com"
 }
 
 func normalizedEmailUniquenessLockKey(email string) string {
@@ -850,6 +868,55 @@ func normalizedEmailUniquenessLockKey(email string) string {
 		return ""
 	}
 	return "users:normalized-email:" + normalized
+}
+
+func writeNormalizedEmailLookupSQL(b *entsql.Builder, s *entsql.Selector, column string) *entsql.Builder {
+	switch s.Dialect() {
+	case dialect.Postgres:
+		return writePostgresNormalizedEmailLookupSQL(b, s, column)
+	default:
+		return writeSQLiteNormalizedEmailLookupSQL(b, s, column)
+	}
+}
+
+func writePostgresNormalizedEmailLookupSQL(b *entsql.Builder, s *entsql.Selector, column string) *entsql.Builder {
+	ref := s.C(column)
+	lowerTrim := "LOWER(TRIM(" + ref + "))"
+	local := "SPLIT_PART(" + lowerTrim + ", '@', 1)"
+	domain := "SPLIT_PART(" + lowerTrim + ", '@', 2)"
+	baseLocal := "SPLIT_PART(" + local + ", '+', 1)"
+	canonicalLocal := "REPLACE(" + baseLocal + ", '.', '')"
+	b.WriteString("CASE WHEN ").
+		WriteString(domain).
+		WriteString(" IN ('gmail.com', 'googlemail.com') AND ").
+		WriteString(canonicalLocal).
+		WriteString(" <> '' THEN ").
+		WriteString(canonicalLocal).
+		WriteString(" || '@gmail.com' ELSE ").
+		WriteString(lowerTrim).
+		WriteString(" END")
+	return b
+}
+
+func writeSQLiteNormalizedEmailLookupSQL(b *entsql.Builder, s *entsql.Selector, column string) *entsql.Builder {
+	ref := s.C(column)
+	lowerTrim := "LOWER(TRIM(" + ref + "))"
+	local := "SUBSTR(" + lowerTrim + ", 1, INSTR(" + lowerTrim + ", '@') - 1)"
+	domain := "SUBSTR(" + lowerTrim + ", INSTR(" + lowerTrim + ", '@') + 1)"
+	baseLocal := "(CASE WHEN INSTR(" + local + ", '+') > 0 THEN SUBSTR(" + local + ", 1, INSTR(" + local + ", '+') - 1) ELSE " + local + " END)"
+	canonicalLocal := "REPLACE(" + baseLocal + ", '.', '')"
+	b.WriteString("CASE WHEN INSTR(").
+		WriteString(lowerTrim).
+		WriteString(", '@') > 1 AND ").
+		WriteString(domain).
+		WriteString(" IN ('gmail.com', 'googlemail.com') AND ").
+		WriteString(canonicalLocal).
+		WriteString(" <> '' THEN ").
+		WriteString(canonicalLocal).
+		WriteString(" || '@gmail.com' ELSE ").
+		WriteString(lowerTrim).
+		WriteString(" END")
+	return b
 }
 
 func (r *userRepository) AddGroupToAllowedGroups(ctx context.Context, userID int64, groupID int64) error {
