@@ -77,6 +77,42 @@ func TestSecretShieldMiddleware_DisabledLeavesRequestAndResponseUntouched(t *tes
 	require.Equal(t, original, rec.Body.String())
 }
 
+func TestSecretShieldMiddleware_RestoresWriterBeforeOuterMiddlewareContinues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	var statusSeenByOuter int
+	r.POST("/v1/responses",
+		func(c *gin.Context) {
+			c.Next()
+			statusSeenByOuter = c.Writer.Status()
+		},
+		func(c *gin.Context) {
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{SecretShieldEnabled: true}})
+			c.Next()
+		},
+		OpsErrorLoggerMiddleware(nil),
+		SecretShieldMiddleware(),
+		func(c *gin.Context) {
+			body, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.Contains(t, string(body), secretShieldPlaceholderPrefixForTest())
+			_, _ = c.Writer.Write(body)
+		},
+	)
+
+	original := `{"model":"gpt-5.5","input":"OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz123456"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(original))
+	req.Header.Set("Content-Type", "application/json")
+
+	require.NotPanics(t, func() {
+		r.ServeHTTP(rec, req)
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, statusSeenByOuter)
+	require.Equal(t, original, rec.Body.String())
+}
+
 func secretShieldPlaceholderPrefixForTest() string {
 	return "__S2A_SECRET_"
 }

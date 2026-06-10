@@ -59,6 +59,9 @@ func SecretShieldMiddleware() gin.HandlerFunc {
 		writer := installSecretShieldResponseWriter(c, vault)
 		defer func() {
 			_ = writer.Finalize()
+			if writer != nil && c.Writer == writer {
+				c.Writer = writer.ResponseWriter
+			}
 		}()
 		c.Next()
 	}
