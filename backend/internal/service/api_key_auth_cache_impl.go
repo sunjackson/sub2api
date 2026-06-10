@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 12 // v12: include exclusive group authorization fields
+const apiKeyAuthSnapshotVersion = 13 // v13: include group secret shield flag
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -252,6 +252,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			Name:                            apiKey.Group.Name,
 			Platform:                        apiKey.Group.Platform,
 			IsExclusive:                     apiKey.Group.IsExclusive,
+			SecretShieldEnabled:             apiKey.Group.SecretShieldEnabled,
 			Status:                          apiKey.Group.Status,
 			SubscriptionType:                apiKey.Group.SubscriptionType,
 			RateMultiplier:                  apiKey.Group.RateMultiplier,
@@ -324,6 +325,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			Name:                            snapshot.Group.Name,
 			Platform:                        snapshot.Group.Platform,
 			IsExclusive:                     snapshot.Group.IsExclusive,
+			SecretShieldEnabled:             snapshot.Group.SecretShieldEnabled,
 			Status:                          snapshot.Group.Status,
 			Hydrated:                        true,
 			SubscriptionType:                snapshot.Group.SubscriptionType,

@@ -223,7 +223,9 @@ type OpenAIWSIngressHooks struct {
 	// 的 reasoning effort 后缀推导，禁止用于上游请求或计费模型。
 	InitialRequestModel string
 	BeforeTurn          func(turn int) error
+	BeforeParseRequest  func(turn int, payload []byte) ([]byte, error)
 	BeforeRequest       func(turn int, payload []byte, originalModel string) error
+	BeforeClientMessage func(payload []byte) []byte
 	AfterTurn           func(turn int, result *OpenAIForwardResult, turnErr error)
 }
 
@@ -2550,10 +2552,20 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return rebuilt, nil
 	}
 
-	parseClientPayload := func(raw []byte) (openAIWSClientPayload, error) {
+	parseClientPayload := func(raw []byte, turn int) (openAIWSClientPayload, error) {
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "empty websocket request payload", nil)
+		}
+		if hooks != nil && hooks.BeforeParseRequest != nil {
+			protected, hookErr := hooks.BeforeParseRequest(turn, trimmed)
+			if hookErr != nil {
+				return openAIWSClientPayload{}, hookErr
+			}
+			trimmed = bytes.TrimSpace(protected)
+			if len(trimmed) == 0 {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "empty websocket request payload", nil)
+			}
 		}
 		if !gjson.ValidBytes(trimmed) {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", errors.New("invalid json"))
@@ -2726,6 +2738,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	writeClientMessage := func(message []byte) error {
+		if hooks != nil && hooks.BeforeClientMessage != nil {
+			message = hooks.BeforeClientMessage(message)
+		}
 		writeCtx, cancel := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 		defer cancel()
 		return clientConn.Write(writeCtx, coderws.MessageText, message)
@@ -2746,7 +2761,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return payload, nil
 	}
 
-	firstPayload, err := parseClientPayload(firstClientMessage)
+	firstPayload, err := parseClientPayload(firstClientMessage, 1)
 	if err != nil {
 		return err
 	}
@@ -2895,7 +2910,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 				return fmt.Errorf("read client websocket request: %w", readErr)
 			}
-			nextPayload, parseErr := parseClientPayload(nextClientMessage)
+			nextPayload, parseErr := parseClientPayload(nextClientMessage, turn+1)
 			if parseErr != nil {
 				return parseErr
 			}
@@ -3872,7 +3887,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return fmt.Errorf("read client websocket request: %w", readErr)
 		}
 
-		nextPayload, parseErr := parseClientPayload(nextClientMessage)
+		nextPayload, parseErr := parseClientPayload(nextClientMessage, turn+1)
 		if parseErr != nil {
 			return parseErr
 		}

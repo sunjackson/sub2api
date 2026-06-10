@@ -11,14 +11,15 @@ type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfi
 type GroupModelsListConfig = domain.GroupModelsListConfig
 
 type Group struct {
-	ID             int64
-	Name           string
-	Description    string
-	Platform       string
-	RateMultiplier float64
-	IsExclusive    bool
-	Status         string
-	Hydrated       bool // indicates the group was loaded from a trusted repository source
+	ID                  int64
+	Name                string
+	Description         string
+	Platform            string
+	RateMultiplier      float64
+	IsExclusive         bool
+	SecretShieldEnabled bool
+	Status              string
+	Hydrated            bool // indicates the group was loaded from a trusted repository source
 
 	SubscriptionType    string
 	DailyLimitUSD       *float64

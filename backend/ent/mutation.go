@@ -14970,6 +14970,7 @@ type GroupMutation struct {
 	rate_multiplier                         *float64
 	addrate_multiplier                      *float64
 	is_exclusive                            *bool
+	secret_shield_enabled                   *bool
 	status                                  *string
 	platform                                *string
 	subscription_type                       *string
@@ -15429,6 +15430,42 @@ func (m *GroupMutation) OldIsExclusive(ctx context.Context) (v bool, err error) 
 // ResetIsExclusive resets all changes to the "is_exclusive" field.
 func (m *GroupMutation) ResetIsExclusive() {
 	m.is_exclusive = nil
+}
+
+// SetSecretShieldEnabled sets the "secret_shield_enabled" field.
+func (m *GroupMutation) SetSecretShieldEnabled(b bool) {
+	m.secret_shield_enabled = &b
+}
+
+// SecretShieldEnabled returns the value of the "secret_shield_enabled" field in the mutation.
+func (m *GroupMutation) SecretShieldEnabled() (r bool, exists bool) {
+	v := m.secret_shield_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretShieldEnabled returns the old "secret_shield_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldSecretShieldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretShieldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretShieldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretShieldEnabled: %w", err)
+	}
+	return oldValue.SecretShieldEnabled, nil
+}
+
+// ResetSecretShieldEnabled resets all changes to the "secret_shield_enabled" field.
+func (m *GroupMutation) ResetSecretShieldEnabled() {
+	m.secret_shield_enabled = nil
 }
 
 // SetStatus sets the "status" field.
@@ -17177,7 +17214,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 35)
+	fields := make([]string, 0, 36)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -17198,6 +17235,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.is_exclusive != nil {
 		fields = append(fields, group.FieldIsExclusive)
+	}
+	if m.secret_shield_enabled != nil {
+		fields = append(fields, group.FieldSecretShieldEnabled)
 	}
 	if m.status != nil {
 		fields = append(fields, group.FieldStatus)
@@ -17305,6 +17345,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.RateMultiplier()
 	case group.FieldIsExclusive:
 		return m.IsExclusive()
+	case group.FieldSecretShieldEnabled:
+		return m.SecretShieldEnabled()
 	case group.FieldStatus:
 		return m.Status()
 	case group.FieldPlatform:
@@ -17384,6 +17426,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldRateMultiplier(ctx)
 	case group.FieldIsExclusive:
 		return m.OldIsExclusive(ctx)
+	case group.FieldSecretShieldEnabled:
+		return m.OldSecretShieldEnabled(ctx)
 	case group.FieldStatus:
 		return m.OldStatus(ctx)
 	case group.FieldPlatform:
@@ -17497,6 +17541,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIsExclusive(v)
+		return nil
+	case group.FieldSecretShieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretShieldEnabled(v)
 		return nil
 	case group.FieldStatus:
 		v, ok := value.(string)
@@ -17991,6 +18042,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldIsExclusive:
 		m.ResetIsExclusive()
+		return nil
+	case group.FieldSecretShieldEnabled:
+		m.ResetSecretShieldEnabled()
 		return nil
 	case group.FieldStatus:
 		m.ResetStatus()

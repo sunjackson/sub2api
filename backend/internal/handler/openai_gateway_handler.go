@@ -1205,6 +1205,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unsupported websocket message type")
 		return
 	}
+	var wsSecretVault *service.SecretShieldVault
+	if secretShieldEnabled(apiKey) {
+		wsSecretVault = service.NewSecretShieldVault()
+		if protected, changed := wsSecretVault.ProtectBytes(firstMessage); changed {
+			firstMessage = protected
+		}
+	}
 	if !gjson.ValidBytes(firstMessage) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid JSON payload")
 		return
@@ -1391,6 +1398,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		var requestPayloadHash string
 		hooks := &service.OpenAIWSIngressHooks{
 			InitialRequestModel: reqModel,
+			BeforeParseRequest: func(turn int, payload []byte) ([]byte, error) {
+				if wsSecretVault == nil {
+					return payload, nil
+				}
+				protected, _ := wsSecretVault.ProtectBytes(payload)
+				return protected, nil
+			},
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
 				if turn == 1 {
 					return nil
@@ -1410,6 +1424,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, decision.Message, nil)
 				}
 				return nil
+			},
+			BeforeClientMessage: func(payload []byte) []byte {
+				if wsSecretVault == nil || wsSecretVault.Empty() {
+					return payload
+				}
+				return wsSecretVault.RestoreBytes(payload)
 			},
 			BeforeTurn: func(turn int) error {
 				if turn == 1 {

@@ -119,6 +119,20 @@ func (_c *GroupCreate) SetNillableIsExclusive(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetSecretShieldEnabled sets the "secret_shield_enabled" field.
+func (_c *GroupCreate) SetSecretShieldEnabled(v bool) *GroupCreate {
+	_c.mutation.SetSecretShieldEnabled(v)
+	return _c
+}
+
+// SetNillableSecretShieldEnabled sets the "secret_shield_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableSecretShieldEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetSecretShieldEnabled(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *GroupCreate) SetStatus(v string) *GroupCreate {
 	_c.mutation.SetStatus(v)
@@ -644,6 +658,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultIsExclusive
 		_c.mutation.SetIsExclusive(v)
 	}
+	if _, ok := _c.mutation.SecretShieldEnabled(); !ok {
+		v := group.DefaultSecretShieldEnabled
+		_c.mutation.SetSecretShieldEnabled(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := group.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -744,6 +762,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsExclusive(); !ok {
 		return &ValidationError{Name: "is_exclusive", err: errors.New(`ent: missing required field "Group.is_exclusive"`)}
+	}
+	if _, ok := _c.mutation.SecretShieldEnabled(); !ok {
+		return &ValidationError{Name: "secret_shield_enabled", err: errors.New(`ent: missing required field "Group.secret_shield_enabled"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "Group.status"`)}
@@ -876,6 +897,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsExclusive(); ok {
 		_spec.SetField(group.FieldIsExclusive, field.TypeBool, value)
 		_node.IsExclusive = value
+	}
+	if value, ok := _c.mutation.SecretShieldEnabled(); ok {
+		_spec.SetField(group.FieldSecretShieldEnabled, field.TypeBool, value)
+		_node.SecretShieldEnabled = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
@@ -1232,6 +1257,18 @@ func (u *GroupUpsert) SetIsExclusive(v bool) *GroupUpsert {
 // UpdateIsExclusive sets the "is_exclusive" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateIsExclusive() *GroupUpsert {
 	u.SetExcluded(group.FieldIsExclusive)
+	return u
+}
+
+// SetSecretShieldEnabled sets the "secret_shield_enabled" field.
+func (u *GroupUpsert) SetSecretShieldEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldSecretShieldEnabled, v)
+	return u
+}
+
+// UpdateSecretShieldEnabled sets the "secret_shield_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateSecretShieldEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldSecretShieldEnabled)
 	return u
 }
 
@@ -1844,6 +1881,20 @@ func (u *GroupUpsertOne) SetIsExclusive(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateIsExclusive() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateIsExclusive()
+	})
+}
+
+// SetSecretShieldEnabled sets the "secret_shield_enabled" field.
+func (u *GroupUpsertOne) SetSecretShieldEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetSecretShieldEnabled(v)
+	})
+}
+
+// UpdateSecretShieldEnabled sets the "secret_shield_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateSecretShieldEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateSecretShieldEnabled()
 	})
 }
 
@@ -2699,6 +2750,20 @@ func (u *GroupUpsertBulk) SetIsExclusive(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateIsExclusive() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateIsExclusive()
+	})
+}
+
+// SetSecretShieldEnabled sets the "secret_shield_enabled" field.
+func (u *GroupUpsertBulk) SetSecretShieldEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetSecretShieldEnabled(v)
+	})
+}
+
+// UpdateSecretShieldEnabled sets the "secret_shield_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateSecretShieldEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateSecretShieldEnabled()
 	})
 }
 

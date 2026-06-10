@@ -2309,6 +2309,12 @@ export default {
         fallbackHint: '非 Claude Code 请求将使用此分组，留空则直接拒绝',
         noFallback: '不降级（直接拒绝）'
       },
+      secretShield: {
+        title: 'Secret Shield / 隐私保护',
+        tooltip: '启用后，此分组的请求将使用 Secret Shield 隐私保护。',
+        enabled: '已启用',
+        disabled: '已禁用'
+      },
       openaiMessages: {
         title: 'OpenAI Messages 调度配置',
         allowDispatch: '允许 /v1/messages 调度',

@@ -47,6 +47,9 @@ func (Group) Fields() []ent.Field {
 			Default(1.0),
 		field.Bool("is_exclusive").
 			Default(false),
+		field.Bool("secret_shield_enabled").
+			Default(false).
+			Comment("是否启用 Secret Shield 保护"),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),

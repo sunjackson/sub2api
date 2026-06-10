@@ -1060,6 +1060,68 @@
           </div>
         </div>
 
+        <!-- Secret Shield 隐私保护 -->
+        <div class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.secretShield.title") }}
+            </label>
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.secretShield.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="
+                createForm.secret_shield_enabled =
+                  !createForm.secret_shield_enabled
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.secret_shield_enabled
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.secret_shield_enabled
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                createForm.secret_shield_enabled
+                  ? t("admin.groups.secretShield.enabled")
+                  : t("admin.groups.secretShield.disabled")
+              }}
+            </span>
+          </div>
+        </div>
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
           v-if="createForm.platform === 'openai'"
@@ -2344,6 +2406,68 @@
           </div>
         </div>
 
+        <!-- Secret Shield 隐私保护 -->
+        <div class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.secretShield.title") }}
+            </label>
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.secretShield.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="
+                editForm.secret_shield_enabled =
+                  !editForm.secret_shield_enabled
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.secret_shield_enabled
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.secret_shield_enabled
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                editForm.secret_shield_enabled
+                  ? t("admin.groups.secretShield.enabled")
+                  : t("admin.groups.secretShield.disabled")
+              }}
+            </span>
+          </div>
+        </div>
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
           v-if="editForm.platform === 'openai'"
@@ -3353,6 +3477,8 @@ const createForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  // Secret Shield 隐私保护
+  secret_shield_enabled: false,
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -3685,6 +3811,8 @@ const editForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  // Secret Shield 隐私保护
+  secret_shield_enabled: false,
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -3928,6 +4056,7 @@ const closeCreateModal = () => {
   resetMessagesDispatchFormState(createForm);
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
+  createForm.secret_shield_enabled = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
@@ -4065,6 +4194,7 @@ const handleEdit = async (group: AdminGroup) => {
     messagesDispatchFormState.exact_model_mappings;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
+  editForm.secret_shield_enabled = group.secret_shield_enabled ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
   editForm.supported_model_scopes = group.supported_model_scopes || [
     "claude",
@@ -4092,6 +4222,7 @@ const closeEditModal = () => {
   editingGroup.value = null;
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];
+  editForm.secret_shield_enabled = false;
   resetMessagesDispatchFormState(editForm);
   resetModelsListState(editModelsListState);
 };

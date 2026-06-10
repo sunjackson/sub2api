@@ -90,6 +90,11 @@ func IsExclusive(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldIsExclusive, v))
 }
 
+// SecretShieldEnabled applies equality check predicate on the "secret_shield_enabled" field. It's identical to SecretShieldEnabledEQ.
+func SecretShieldEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldSecretShieldEnabled, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldStatus, v))
@@ -528,6 +533,16 @@ func IsExclusiveEQ(v bool) predicate.Group {
 // IsExclusiveNEQ applies the NEQ predicate on the "is_exclusive" field.
 func IsExclusiveNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldIsExclusive, v))
+}
+
+// SecretShieldEnabledEQ applies the EQ predicate on the "secret_shield_enabled" field.
+func SecretShieldEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldSecretShieldEnabled, v))
+}
+
+// SecretShieldEnabledNEQ applies the NEQ predicate on the "secret_shield_enabled" field.
+func SecretShieldEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldSecretShieldEnabled, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

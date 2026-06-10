@@ -30,6 +30,8 @@ const (
 	FieldRateMultiplier = "rate_multiplier"
 	// FieldIsExclusive holds the string denoting the is_exclusive field in the database.
 	FieldIsExclusive = "is_exclusive"
+	// FieldSecretShieldEnabled holds the string denoting the secret_shield_enabled field in the database.
+	FieldSecretShieldEnabled = "secret_shield_enabled"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldPlatform holds the string denoting the platform field in the database.
@@ -168,6 +170,7 @@ var Columns = []string{
 	FieldDescription,
 	FieldRateMultiplier,
 	FieldIsExclusive,
+	FieldSecretShieldEnabled,
 	FieldStatus,
 	FieldPlatform,
 	FieldSubscriptionType,
@@ -237,6 +240,8 @@ var (
 	DefaultRateMultiplier float64
 	// DefaultIsExclusive holds the default value on creation for the "is_exclusive" field.
 	DefaultIsExclusive bool
+	// DefaultSecretShieldEnabled holds the default value on creation for the "secret_shield_enabled" field.
+	DefaultSecretShieldEnabled bool
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -326,6 +331,11 @@ func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 // ByIsExclusive orders the results by the is_exclusive field.
 func ByIsExclusive(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsExclusive, opts...).ToFunc()
+}
+
+// BySecretShieldEnabled orders the results by the secret_shield_enabled field.
+func BySecretShieldEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSecretShieldEnabled, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.
