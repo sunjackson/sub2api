@@ -74,7 +74,7 @@ func newAnnouncementSortTestRouter(announcementRepo *announcementRepoCapture, us
 		userRepo,
 		&announcementUserSubRepoCapture{},
 	)
-	handler := NewAnnouncementHandler(svc)
+	handler := NewAnnouncementHandler(svc, nil)
 	router := gin.New()
 	router.GET("/admin/announcements", handler.List)
 	router.GET("/admin/announcements/:id/read-status", handler.ListReadStatus)

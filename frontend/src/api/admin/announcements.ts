@@ -5,6 +5,7 @@
 import { apiClient } from '../client'
 import type {
   Announcement,
+  AnnouncementImageUploadResponse,
   AnnouncementUserReadStatus,
   BasePaginationResponse,
   CreateAnnouncementRequest,
@@ -51,6 +52,15 @@ export async function deleteAnnouncement(id: number): Promise<{ message: string 
   return data
 }
 
+export async function uploadImage(file: File): Promise<AnnouncementImageUploadResponse> {
+  const formData = new FormData()
+  formData.append('image', file)
+  const { data } = await apiClient.post<AnnouncementImageUploadResponse>('/admin/announcement-images', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return data
+}
+
 export async function getReadStatus(
   id: number,
   page: number = 1,
@@ -80,6 +90,7 @@ const announcementsAPI = {
   create,
   update,
   delete: deleteAnnouncement,
+  uploadImage,
   getReadStatus
 }
 

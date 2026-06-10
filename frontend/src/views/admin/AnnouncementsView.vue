@@ -175,8 +175,75 @@
         </div>
 
         <div>
-          <label class="input-label">{{ t('admin.announcements.form.content') }}</label>
-          <textarea v-model="form.content" rows="6" class="input" required></textarea>
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <label class="input-label mb-0">{{ t('admin.announcements.form.content') }}</label>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800">
+                <button
+                  type="button"
+                  :class="[
+                    'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    !previewMode
+                      ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-dark-300 dark:hover:text-white'
+                  ]"
+                  @click="previewMode = false"
+                >
+                  {{ t('admin.announcements.form.editMarkdown') }}
+                </button>
+                <button
+                  type="button"
+                  :class="[
+                    'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    previewMode
+                      ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+                      : 'text-gray-500 hover:text-gray-700 dark:text-dark-300 dark:hover:text-white'
+                  ]"
+                  @click="previewMode = true"
+                >
+                  {{ t('admin.announcements.form.previewMarkdown') }}
+                </button>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="uploadingImage"
+                @click="triggerImageUpload"
+              >
+                <Icon name="upload" size="sm" class="mr-1" />
+                {{ uploadingImage ? t('admin.announcements.form.uploadingImage') : t('admin.announcements.form.uploadImage') }}
+              </button>
+              <input
+                ref="imageInput"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                class="hidden"
+                @change="handleImageFileChange"
+              />
+            </div>
+          </div>
+          <textarea
+            v-if="!previewMode"
+            ref="contentTextarea"
+            v-model="form.content"
+            rows="8"
+            class="input font-mono text-sm leading-6"
+            required
+          ></textarea>
+          <div
+            v-else
+            class="min-h-[13rem] rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
+          >
+            <div
+              v-if="form.content.trim()"
+              class="markdown-body prose prose-sm max-w-none dark:prose-invert prose-img:max-w-full prose-img:rounded-lg"
+              v-html="renderedPreview"
+            ></div>
+            <div v-else class="flex h-40 items-center justify-center text-sm text-gray-400 dark:text-dark-400">
+              {{ t('admin.announcements.form.previewEmpty') }}
+            </div>
+          </div>
+          <p class="input-hint">{{ t('admin.announcements.form.imageUploadHint') }}</p>
         </div>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -244,8 +311,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { adminAPI } from '@/api/admin'
@@ -409,7 +478,16 @@ function handleSearch() {
 // ===== Create/Edit dialog =====
 const showEditDialog = ref(false)
 const saving = ref(false)
+const uploadingImage = ref(false)
+const previewMode = ref(false)
 const editingAnnouncement = ref<Announcement | null>(null)
+const imageInput = ref<HTMLInputElement | null>(null)
+const contentTextarea = ref<HTMLTextAreaElement | null>(null)
+
+marked.setOptions({
+  breaks: true,
+  gfm: true
+})
 
 const isEditing = computed(() => !!editingAnnouncement.value)
 
@@ -421,6 +499,11 @@ const form = reactive({
   starts_at_str: '',
   ends_at_str: '',
   targeting: { any_of: [] } as AnnouncementTargeting
+})
+
+const renderedPreview = computed(() => {
+  const html = marked.parse(form.content || '') as string
+  return DOMPurify.sanitize(html)
 })
 
 const subscriptionGroups = ref<AdminGroup[]>([])
@@ -461,18 +544,73 @@ function fillFormFromAnnouncement(a: Announcement) {
 function openCreateDialog() {
   editingAnnouncement.value = null
   resetForm()
+  previewMode.value = false
   showEditDialog.value = true
 }
 
 function openEditDialog(row: Announcement) {
   editingAnnouncement.value = row
   fillFormFromAnnouncement(row)
+  previewMode.value = false
   showEditDialog.value = true
 }
 
 function closeEdit() {
   showEditDialog.value = false
   editingAnnouncement.value = null
+}
+
+function triggerImageUpload() {
+  if (uploadingImage.value) return
+  imageInput.value?.click()
+}
+
+async function handleImageFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+  if (!allowedTypes.has(file.type) || file.size <= 0 || file.size > 5 * 1024 * 1024) {
+    appStore.showError(t('admin.announcements.form.imageUploadFailed'))
+    return
+  }
+
+  uploadingImage.value = true
+  try {
+    const uploaded = await adminAPI.announcements.uploadImage(file)
+    await insertMarkdownAtCursor(uploaded.markdown || `![${file.name}](${uploaded.url})`)
+    appStore.showSuccess(t('common.success'))
+  } catch (error: any) {
+    console.error('Failed to upload announcement image:', error)
+    appStore.showError(error.response?.data?.detail || error.message || t('admin.announcements.form.imageUploadFailed'))
+  } finally {
+    uploadingImage.value = false
+  }
+}
+
+async function insertMarkdownAtCursor(markdown: string) {
+  if (previewMode.value) {
+    previewMode.value = false
+    await nextTick()
+  }
+
+  const textarea = contentTextarea.value
+  const insertText = `${form.content && !form.content.endsWith('\n') ? '\n' : ''}${markdown}\n`
+  if (!textarea) {
+    form.content += insertText
+    return
+  }
+
+  const start = textarea.selectionStart ?? form.content.length
+  const end = textarea.selectionEnd ?? start
+  form.content = form.content.slice(0, start) + insertText + form.content.slice(end)
+
+  await nextTick()
+  const cursor = start + insertText.length
+  textarea.focus()
+  textarea.setSelectionRange(cursor, cursor)
 }
 
 function buildCreatePayload() {

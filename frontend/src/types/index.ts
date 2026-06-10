@@ -352,6 +352,11 @@ export interface UpdateAnnouncementRequest {
   ends_at?: number
 }
 
+export interface AnnouncementImageUploadResponse {
+  url: string
+  markdown: string
+}
+
 export interface AnnouncementUserReadStatus {
   user_id: number
   email: string

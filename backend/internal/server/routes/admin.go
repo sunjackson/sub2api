@@ -345,6 +345,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerAnnouncementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.POST("/announcement-images", h.Admin.Announcement.UploadImage)
+
 	announcements := admin.Group("/announcements")
 	{
 		announcements.GET("", h.Admin.Announcement.List)

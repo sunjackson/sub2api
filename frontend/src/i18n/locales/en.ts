@@ -4501,6 +4501,13 @@ export default {
       form: {
         title: 'Title',
         content: 'Content (Markdown supported)',
+        editMarkdown: 'Edit',
+        previewMarkdown: 'Preview',
+        uploadImage: 'Upload image',
+        uploadingImage: 'Uploading...',
+        imageUploadHint: 'Supports PNG, JPG, GIF, and WebP up to 5MB. A Markdown image link is inserted after upload.',
+        imageUploadFailed: 'Failed to upload image',
+        previewEmpty: 'Nothing to preview yet',
         status: 'Status',
         notifyMode: 'Notify Mode',
         notifyModeHint: 'Popup mode will show a popup notification to users',

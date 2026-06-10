@@ -183,7 +183,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountTestService := service.NewAccountTestService(accountRepository, geminiTokenProvider, claudeTokenProvider, antigravityGatewayService, httpUpstream, configConfig, tlsFingerprintProfileService)
 	crsSyncService := service.NewCRSSyncService(accountRepository, proxyRepository, oAuthService, openAIOAuthService, geminiOAuthService, configConfig)
 	accountHandler := admin.NewAccountHandler(adminService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, rateLimitService, accountUsageService, accountTestService, concurrencyService, crsSyncService, sessionLimitCache, rpmCache, compositeTokenCacheInvalidator)
-	adminAnnouncementHandler := admin.NewAnnouncementHandler(announcementService)
+	adminAnnouncementHandler := admin.NewAnnouncementHandler(announcementService, configConfig)
 	dataManagementService := service.NewDataManagementService()
 	dataManagementHandler := admin.NewDataManagementHandler(dataManagementService)
 	backupObjectStoreFactory := repository.NewS3BackupStoreFactory()

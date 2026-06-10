@@ -15,6 +15,9 @@ func RegisterUserRoutes(
 	jwtAuth middleware.JWTAuthMiddleware,
 	settingService *service.SettingService,
 ) {
+	// Uploaded announcement images are publicly readable so Markdown <img> tags can load them.
+	v1.GET("/announcement-images/:filename", h.Admin.Announcement.ServeImage)
+
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))

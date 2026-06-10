@@ -4654,6 +4654,13 @@ export default {
       form: {
         title: '标题',
         content: '内容（支持 Markdown）',
+        editMarkdown: '编辑',
+        previewMarkdown: '预览',
+        uploadImage: '上传图片',
+        uploadingImage: '上传中...',
+        imageUploadHint: '支持 PNG、JPG、GIF、WebP，最大 5MB。上传成功后会自动插入 Markdown 图片链接。',
+        imageUploadFailed: '图片上传失败',
+        previewEmpty: '暂无内容可预览',
         status: '状态',
         notifyMode: '通知方式',
         notifyModeHint: '弹窗模式会自动弹出通知给用户',
