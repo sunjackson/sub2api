@@ -39,6 +39,10 @@
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
+            <button @click="showQuotaMonitorDialog = true" class="btn btn-secondary">
+              <Icon name="chart" size="md" class="mr-2" />
+              {{ t('admin.accountQuotaMonitor.title', '额度监控') }}
+            </button>
             <button @click="openCreateDialog" class="btn btn-primary">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.channels.createChannel', 'Create Channel') }}
@@ -610,6 +614,11 @@
       </template>
     </BaseDialog>
 
+    <AccountQuotaMonitorDialog
+      :show="showQuotaMonitorDialog"
+      @close="showQuotaMonitorDialog = false"
+    />
+
     <!-- Delete Confirmation -->
     <ConfirmDialog
       :show="showDeleteDialog"
@@ -648,6 +657,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
+import AccountQuotaMonitorDialog from '@/components/admin/AccountQuotaMonitorDialog.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 
@@ -736,6 +746,7 @@ const showDialog = ref(false)
 const editingChannel = ref<Channel | null>(null)
 const submitting = ref(false)
 const showDeleteDialog = ref(false)
+const showQuotaMonitorDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
 const activeTab = ref<string>('basic')
 

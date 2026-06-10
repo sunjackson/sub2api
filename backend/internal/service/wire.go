@@ -634,6 +634,8 @@ var ProviderSet = wire.NewSet(
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
+	ProvideAccountQuotaMonitorService,
+	ProvideAccountQuotaMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
 )
@@ -679,6 +681,27 @@ func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache Lead
 		svc.Start()
 	}
 	return svc
+}
+
+// ProvideAccountQuotaMonitorService 创建账号额度监控服务。
+func ProvideAccountQuotaMonitorService(
+	repo AccountQuotaMonitorRepository,
+	accountRepo AccountRepository,
+	encryptor SecretEncryptor,
+) *AccountQuotaMonitorService {
+	return NewAccountQuotaMonitorService(repo, accountRepo, encryptor)
+}
+
+// ProvideAccountQuotaMonitorRunner 创建并启动账号额度监控调度器。
+func ProvideAccountQuotaMonitorRunner(svc *AccountQuotaMonitorService) *AccountQuotaMonitorRunner {
+	r := NewAccountQuotaMonitorRunner(svc)
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.account_quota_monitor_runner", "[AccountQuotaMonitorRunner] background worker disabled by dev config")
+		return r
+	}
+	svc.SetScheduler(r)
+	r.Start()
+	return r
 }
 
 // ProvideChannelMonitorService 创建渠道监控服务（CRUD + RunCheck + 用户视图聚合）。

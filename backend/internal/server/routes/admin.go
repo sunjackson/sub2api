@@ -98,6 +98,9 @@ func RegisterAdminRoutes(
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h)
 
+		// 账号额度监控
+		registerAccountQuotaMonitorRoutes(admin, h)
+
 		// 风控中心
 		registerContentModerationRoutes(admin, h)
 
@@ -621,6 +624,21 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		channels.POST("", h.Admin.Channel.Create)
 		channels.PUT("/:id", h.Admin.Channel.Update)
 		channels.DELETE("/:id", h.Admin.Channel.Delete)
+	}
+}
+
+func registerAccountQuotaMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	monitors := admin.Group("/quota-monitors")
+	{
+		monitors.GET("", h.Admin.AccountQuotaMonitor.List)
+		monitors.POST("", h.Admin.AccountQuotaMonitor.Create)
+		monitors.GET("/summary", h.Admin.AccountQuotaMonitor.Summary)
+		monitors.GET("/trend", h.Admin.AccountQuotaMonitor.Trend)
+		monitors.GET("/:id", h.Admin.AccountQuotaMonitor.Get)
+		monitors.PUT("/:id", h.Admin.AccountQuotaMonitor.Update)
+		monitors.DELETE("/:id", h.Admin.AccountQuotaMonitor.Delete)
+		monitors.POST("/:id/run", h.Admin.AccountQuotaMonitor.Run)
+		monitors.GET("/:id/history", h.Admin.AccountQuotaMonitor.History)
 	}
 }
 
