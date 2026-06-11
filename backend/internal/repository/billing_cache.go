@@ -235,7 +235,7 @@ func (c *billingCache) SetSubscriptionCache(ctx context.Context, userID, groupID
 	}
 
 	pipe := c.rdb.Pipeline()
-	pipe.HSet(ctx, key, fields)
+	pipe.HMSet(ctx, key, fields)
 	pipe.Expire(ctx, key, jitteredTTL())
 	_, err := pipe.Exec(ctx)
 	return err
@@ -301,7 +301,7 @@ func (c *billingCache) SetAPIKeyRateLimit(ctx context.Context, keyID int64, data
 		rateLimitFieldWindow7d: data.Window7d,
 	}
 	pipe := c.rdb.Pipeline()
-	pipe.HSet(ctx, key, fields)
+	pipe.HMSet(ctx, key, fields)
 	pipe.Expire(ctx, key, rateLimitCacheTTL)
 	_, err := pipe.Exec(ctx)
 	return err
@@ -433,7 +433,7 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 		return strconv.FormatInt(p.Unix(), 10)
 	}
 
-	pipe.HSet(ctx, key,
+	pipe.HMSet(ctx, key,
 		"daily_usage", entry.DailyUsageUSD,
 		"weekly_usage", entry.WeeklyUsageUSD,
 		"monthly_usage", entry.MonthlyUsageUSD,
