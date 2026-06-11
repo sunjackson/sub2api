@@ -144,6 +144,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 		}
 		responsesReq.Model = upstreamModel
+		if strings.TrimSpace(responsesReq.Instructions) == "" {
+			responsesReq.Instructions = defaultCodexSynthInstructions(upstreamModel)
+		}
 		normalizeResponsesRequestServiceTier(responsesReq)
 		responsesBody, err = json.Marshal(responsesReq)
 		if err != nil {
