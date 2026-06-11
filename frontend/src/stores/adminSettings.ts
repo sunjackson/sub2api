@@ -44,9 +44,12 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
     }
   }
 
-  // Default open, but honor cached value to reduce UI flicker on first paint.
-  const opsMonitoringEnabled = ref(readCachedBool('ops_monitoring_enabled_cached', true))
-  const opsRealtimeMonitoringEnabled = ref(readCachedBool('ops_realtime_monitoring_enabled_cached', true))
+  // Ops is a core admin module on GMT. Do not seed it from localStorage:
+  // older builds could cache `ops_monitoring_enabled_cached=false` after a transient
+  // feature-gated 404, which hides the sidebar item even after the server is enabled.
+  // Keep the menu visible until the settings API explicitly says it is disabled.
+  const opsMonitoringEnabled = ref(true)
+  const opsRealtimeMonitoringEnabled = ref(true)
   const opsQueryModeDefault = ref(readCachedString('ops_query_mode_default_cached', 'auto'))
   const paymentEnabled = ref(readCachedBool('payment_enabled_cached', false))
   const customMenuItems = ref<CustomMenuItem[]>([])
@@ -57,10 +60,7 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
 
     loading.value = true
     try {
-      const [settings, paymentConfigResp] = await Promise.all([
-        adminAPI.settings.getSettings(),
-        adminAPI.payment.getConfig()
-      ])
+      const settings = await adminAPI.settings.getSettings()
       opsMonitoringEnabled.value = settings.ops_monitoring_enabled ?? true
       writeCachedBool('ops_monitoring_enabled_cached', opsMonitoringEnabled.value)
 
@@ -72,14 +72,22 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
 
       customMenuItems.value = Array.isArray(settings.custom_menu_items) ? settings.custom_menu_items : []
 
-      paymentEnabled.value = paymentConfigResp.data?.enabled ?? false
-      writeCachedBool('payment_enabled_cached', paymentEnabled.value)
-
       loaded.value = true
     } catch (err) {
-      // Keep cached/default value: do not "flip" the UI based on a transient fetch failure.
+      // Keep default-open ops visibility: do not hide core admin navigation because
+      // settings failed to load transiently.
       loaded.value = true
       console.error('[adminSettings] Failed to fetch settings:', err)
+    }
+
+    try {
+      const paymentConfigResp = await adminAPI.payment.getConfig()
+      paymentEnabled.value = paymentConfigResp.data?.enabled ?? false
+      writeCachedBool('payment_enabled_cached', paymentEnabled.value)
+    } catch (err) {
+      // Payment menu visibility is independent from ops. A payment config failure
+      // must not keep stale ops_monitoring_enabled_cached=false in effect.
+      console.error('[adminSettings] Failed to fetch payment config:', err)
     } finally {
       loading.value = false
     }
