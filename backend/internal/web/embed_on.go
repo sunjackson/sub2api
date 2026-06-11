@@ -108,10 +108,21 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// Serve static files normally
+		// Serve static files normally. Vite emits hashed asset filenames, so they can
+		// be cached aggressively by browsers and upstream CDNs.
+		setStaticAssetCacheHeaders(c, cleanPath)
 		s.fileServer.ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	}
+}
+
+func setStaticAssetCacheHeaders(c *gin.Context, cleanPath string) {
+	if !strings.HasPrefix(cleanPath, "assets/") {
+		return
+	}
+	// Built assets are content-hashed by Vite. Long immutable caching removes
+	// repeated JS/CSS round-trips, especially on direct Nginx domains without CDN cache rules.
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 }
 
 func (s *FrontendServer) fileExists(path string) bool {
@@ -272,6 +283,7 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 			if tryServeOverrideFile(c, overrideDir, cleanPath) {
 				return
 			}
+			setStaticAssetCacheHeaders(c, cleanPath)
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			c.Abort()
 			return

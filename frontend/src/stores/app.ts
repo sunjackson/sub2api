@@ -25,6 +25,7 @@ export const useAppStore = defineStore('app', () => {
   // Public settings cache state
   const publicSettingsLoaded = ref<boolean>(false)
   const publicSettingsLoading = ref<boolean>(false)
+  const publicSettingsPartial = ref<boolean>(false)
   const siteName = ref<string>('Sub2API')
   const siteLogo = ref<string>('')
   const siteVersion = ref<string>('')
@@ -287,10 +288,11 @@ export const useAppStore = defineStore('app', () => {
   /**
    * Apply settings to store state (internal helper to avoid code duplication)
    */
-  function applySettings(config: PublicSettings): void {
+  function applySettings(config: PublicSettings, partial = false): void {
     if (typeof window !== 'undefined') {
       window.__APP_CONFIG__ = { ...config }
     }
+    publicSettingsPartial.value = partial
     cachedPublicSettings.value = config
     siteName.value = config.site_name || 'Sub2API'
     siteLogo.value = config.site_logo || ''
@@ -308,12 +310,14 @@ export const useAppStore = defineStore('app', () => {
   async function fetchPublicSettings(force = false): Promise<PublicSettings | null> {
     // Check for injected config from server (eliminates flash)
     if (!publicSettingsLoaded.value && !force && window.__APP_CONFIG__) {
-      applySettings(window.__APP_CONFIG__)
+      applySettings(window.__APP_CONFIG__, true)
       return window.__APP_CONFIG__
     }
 
-    // Return cached data if available and not forcing refresh
-    if (publicSettingsLoaded.value && !force) {
+    // Return cached data if available and not forcing refresh.
+    // Server-injected settings are intentionally light: large fields such as
+    // base64 logo, home markdown, and legal documents are fetched after mount.
+    if (publicSettingsLoaded.value && !publicSettingsPartial.value && !force) {
       if (cachedPublicSettings.value) {
         return { ...cachedPublicSettings.value }
       }
@@ -387,6 +391,7 @@ export const useAppStore = defineStore('app', () => {
    */
   function clearPublicSettingsCache(): void {
     publicSettingsLoaded.value = false
+    publicSettingsPartial.value = false
     cachedPublicSettings.value = null
   }
 
@@ -397,7 +402,7 @@ export const useAppStore = defineStore('app', () => {
    */
   function initFromInjectedConfig(): boolean {
     if (window.__APP_CONFIG__) {
-      applySettings(window.__APP_CONFIG__)
+      applySettings(window.__APP_CONFIG__, true)
       return true
     }
     return false
@@ -414,6 +419,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Public settings state
     publicSettingsLoaded,
+    publicSettingsPartial,
     siteName,
     siteLogo,
     siteVersion,

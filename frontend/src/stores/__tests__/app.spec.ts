@@ -295,6 +295,67 @@ describe('useAppStore', () => {
       expect(store.cachedPublicSettings).toBeNull()
     })
 
+    it('轻量注入配置后 fetchPublicSettings 会继续拉取完整配置', async () => {
+      const windowAny = window as any
+      windowAny.__APP_CONFIG__ = {
+        registration_enabled: true,
+        email_verify_enabled: false,
+        registration_email_suffix_whitelist: [],
+        promo_code_enabled: true,
+        password_reset_enabled: false,
+        invitation_code_enabled: false,
+        turnstile_enabled: false,
+        turnstile_site_key: '',
+        site_name: 'Injected Site',
+        site_logo: '',
+        site_subtitle: '',
+        api_base_url: '',
+        contact_info: '',
+        doc_url: '',
+        home_content: '',
+        hide_ccs_import_button: false,
+        payment_enabled: false,
+        risk_control_enabled: false,
+        table_default_page_size: 20,
+        table_page_size_options: [10, 20, 50, 100],
+        custom_menu_items: [],
+        custom_endpoints: [],
+        linuxdo_oauth_enabled: false,
+        wechat_oauth_enabled: false,
+        oidc_oauth_enabled: false,
+        oidc_oauth_provider_name: 'OIDC',
+        github_oauth_enabled: false,
+        google_oauth_enabled: false,
+        backend_mode_enabled: false,
+        version: '',
+        balance_low_notify_enabled: false,
+        account_quota_notify_enabled: false,
+        balance_low_notify_threshold: 0,
+        channel_monitor_enabled: true,
+        channel_monitor_default_interval_seconds: 60,
+        available_channels_enabled: false,
+        affiliate_enabled: false,
+        allow_user_view_error_requests: false,
+      }
+      vi.mocked(getPublicSettings).mockResolvedValue({
+        ...windowAny.__APP_CONFIG__,
+        site_name: 'Full Site',
+        site_logo: 'data:image/png;base64,AAAA',
+        home_content: '# Home',
+        login_agreement_documents: [{ id: 'terms', title: 'Terms', content_md: '# Terms' }],
+      })
+
+      const store = useAppStore()
+      expect(store.initFromInjectedConfig()).toBe(true)
+
+      const loaded = await store.fetchPublicSettings()
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(loaded?.site_name).toBe('Full Site')
+      expect(store.cachedPublicSettings?.home_content).toBe('# Home')
+      expect(store.siteLogo).toBe('data:image/png;base64,AAAA')
+    })
+
     it('fetchPublicSettings(force) 会同步更新运行时注入配置', async () => {
       vi.mocked(getPublicSettings).mockResolvedValue({
         registration_enabled: false,
