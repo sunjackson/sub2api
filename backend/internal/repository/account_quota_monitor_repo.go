@@ -128,6 +128,38 @@ func (r *accountQuotaMonitorRepository) ListEnabled(ctx context.Context) ([]*ser
 	return scanQuotaMonitors(rows)
 }
 
+func (r *accountQuotaMonitorRepository) FindByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64]*service.AccountQuotaMonitor, error) {
+	out := make(map[int64]*service.AccountQuotaMonitor, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return out, nil
+	}
+	args := make([]any, 0, len(accountIDs))
+	placeholders := make([]string, 0, len(accountIDs))
+	for i, id := range accountIDs {
+		args = append(args, id)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+	}
+	query := quotaMonitorSelectSQL() + fmt.Sprintf(`
+		WHERE m.deleted_at IS NULL AND m.account_id IN (%s)
+		ORDER BY m.account_id ASC, m.id DESC
+	`, strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("find account quota monitors by accounts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		m, err := scanQuotaMonitor(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan account quota monitor by account: %w", err)
+		}
+		if _, exists := out[m.AccountID]; !exists {
+			out[m.AccountID] = m
+		}
+	}
+	return out, rows.Err()
+}
+
 func (r *accountQuotaMonitorRepository) PersistCheckResult(ctx context.Context, result *service.AccountQuotaCheckResult) error {
 	if result == nil {
 		return nil

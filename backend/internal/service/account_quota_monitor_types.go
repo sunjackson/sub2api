@@ -16,15 +16,17 @@ const (
 	QuotaMonitorStatusLowBalance = "low_balance"
 	QuotaMonitorStatusError      = "error"
 
-	quotaMonitorMinIntervalSeconds = 60
-	quotaMonitorMaxIntervalSeconds = 86400
-	quotaMonitorDefaultCurrency    = "USD"
-	quotaMonitorMessageMaxBytes    = 500
-	quotaMonitorHTTPTimeout        = 20 * time.Second
-	quotaMonitorResponseMaxBytes   = 256 * 1024
-	quotaMonitorWorkerConcurrency  = 4
-	quotaMonitorStartupLoadTimeout = 10 * time.Second
-	quotaMonitorRunOneTimeout      = 35 * time.Second
+	quotaMonitorMinIntervalSeconds      = 60
+	quotaMonitorMaxIntervalSeconds      = 86400
+	quotaMonitorDefaultCurrency         = "USD"
+	quotaMonitorMessageMaxBytes         = 500
+	quotaMonitorHTTPTimeout             = 20 * time.Second
+	quotaMonitorResponseMaxBytes        = 256 * 1024
+	quotaMonitorWorkerConcurrency       = 4
+	quotaMonitorStartupLoadTimeout      = 10 * time.Second
+	quotaMonitorRunOneTimeout           = 35 * time.Second
+	quotaMonitorBatchDefaultMaxAccounts = 1000
+	quotaMonitorBatchFetchPageSize      = 1000
 
 	QuotaMonitorHistoryDefaultLimit = 100
 	QuotaMonitorHistoryMaxLimit     = 1000
@@ -70,6 +72,12 @@ var (
 	ErrAccountQuotaMonitorKeyDecryptFailed = infraerrors.InternalServer(
 		"ACCOUNT_QUOTA_MONITOR_KEY_DECRYPT_FAILED", "quota monitor api key override decryption failed; please re-edit the monitor with a fresh key",
 	)
+	ErrAccountQuotaMonitorBatchNoAccounts = infraerrors.BadRequest(
+		"ACCOUNT_QUOTA_MONITOR_BATCH_NO_ACCOUNTS", "no accounts matched quota monitor batch request",
+	)
+	ErrAccountQuotaMonitorBatchTooLarge = infraerrors.BadRequest(
+		"ACCOUNT_QUOTA_MONITOR_BATCH_TOO_LARGE", "too many accounts matched quota monitor batch request",
+	)
 )
 
 // AccountQuotaMonitor describes an upstream account balance/quota monitor.
@@ -109,6 +117,46 @@ type AccountQuotaMonitorMetrics struct {
 	AvgDailyConsumption    *float64
 	EstimatedDaysRemaining *float64
 	EstimatedDepletedAt    *time.Time
+}
+
+type AccountQuotaMonitorAccountFilters struct {
+	Platform    string
+	AccountType string
+	Status      string
+	Search      string
+	GroupID     int64
+	PrivacyMode string
+}
+
+type AccountQuotaMonitorBatchCreateParams struct {
+	AccountIDs          []int64
+	Filters             AccountQuotaMonitorAccountFilters
+	Provider            string
+	Endpoint            string
+	APIKeyOverride      string
+	Enabled             bool
+	IntervalSeconds     int
+	LowBalanceThreshold *float64
+	Currency            string
+	CreatedBy           int64
+	UpdateExisting      bool
+	MaxAccounts         int
+}
+
+type AccountQuotaMonitorBatchFailure struct {
+	AccountID   int64  `json:"account_id"`
+	AccountName string `json:"account_name"`
+	Reason      string `json:"reason"`
+}
+
+type AccountQuotaMonitorBatchCreateResult struct {
+	Selected        int64                             `json:"selected"`
+	Created         int64                             `json:"created"`
+	Updated         int64                             `json:"updated"`
+	SkippedExisting int64                             `json:"skipped_existing"`
+	Failed          int64                             `json:"failed"`
+	Items           []*AccountQuotaMonitor            `json:"-"`
+	Failures        []AccountQuotaMonitorBatchFailure `json:"failures"`
 }
 
 type AccountQuotaMonitorListParams struct {

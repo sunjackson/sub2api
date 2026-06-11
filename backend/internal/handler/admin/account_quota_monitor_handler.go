@@ -22,6 +22,29 @@ func NewAccountQuotaMonitorHandler(quotaService *service.AccountQuotaMonitorServ
 	return &AccountQuotaMonitorHandler{quotaService: quotaService}
 }
 
+type accountQuotaMonitorBatchAccountFiltersRequest struct {
+	Platform    string `json:"platform"`
+	Type        string `json:"type"`
+	Status      string `json:"status"`
+	Group       string `json:"group"`
+	Search      string `json:"search"`
+	PrivacyMode string `json:"privacy_mode"`
+}
+
+type accountQuotaMonitorBatchCreateRequest struct {
+	AccountIDs          []int64                                        `json:"account_ids"`
+	Filters             *accountQuotaMonitorBatchAccountFiltersRequest `json:"filters"`
+	Provider            string                                         `json:"provider" binding:"required,oneof=sub2api newapi custom"`
+	Endpoint            string                                         `json:"endpoint" binding:"omitempty,max=1000"`
+	APIKeyOverride      string                                         `json:"api_key_override" binding:"omitempty,max=4000"`
+	Enabled             *bool                                          `json:"enabled"`
+	IntervalSeconds     int                                            `json:"interval_seconds" binding:"omitempty,min=60,max=86400"`
+	LowBalanceThreshold *float64                                       `json:"low_balance_threshold"`
+	Currency            string                                         `json:"currency" binding:"omitempty,max=16"`
+	UpdateExisting      bool                                           `json:"update_existing"`
+	MaxAccounts         int                                            `json:"max_accounts" binding:"omitempty,min=1,max=1000"`
+}
+
 type accountQuotaMonitorCreateRequest struct {
 	Name                string   `json:"name" binding:"required,max=120"`
 	AccountID           int64    `json:"account_id" binding:"required,min=1"`
@@ -110,6 +133,15 @@ type accountQuotaTrendPointResponse struct {
 	Balance  float64 `json:"balance"`
 	Count    int64   `json:"count"`
 }
+type accountQuotaMonitorBatchCreateResponse struct {
+	Selected        int64                                     `json:"selected"`
+	Created         int64                                     `json:"created"`
+	Updated         int64                                     `json:"updated"`
+	SkippedExisting int64                                     `json:"skipped_existing"`
+	Failed          int64                                     `json:"failed"`
+	Items           []*accountQuotaMonitorResponse            `json:"items"`
+	Failures        []service.AccountQuotaMonitorBatchFailure `json:"failures"`
+}
 
 func (h *AccountQuotaMonitorHandler) List(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
@@ -182,6 +214,47 @@ func (h *AccountQuotaMonitorHandler) Create(c *gin.Context) {
 		return
 	}
 	response.Created(c, accountQuotaMonitorToResponse(m))
+}
+
+func (h *AccountQuotaMonitorHandler) BatchCreate(c *gin.Context) {
+	var req accountQuotaMonitorBatchCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	subject, _ := middleware2.GetAuthSubjectFromContext(c)
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	interval := req.IntervalSeconds
+	if interval == 0 {
+		interval = 3600
+	}
+	filters, err := quotaMonitorBatchFiltersFromRequest(req.Filters)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result, err := h.quotaService.BatchCreate(c.Request.Context(), service.AccountQuotaMonitorBatchCreateParams{
+		AccountIDs:          req.AccountIDs,
+		Filters:             filters,
+		Provider:            req.Provider,
+		Endpoint:            req.Endpoint,
+		APIKeyOverride:      req.APIKeyOverride,
+		Enabled:             enabled,
+		IntervalSeconds:     interval,
+		LowBalanceThreshold: req.LowBalanceThreshold,
+		Currency:            req.Currency,
+		CreatedBy:           subject.UserID,
+		UpdateExisting:      req.UpdateExisting,
+		MaxAccounts:         req.MaxAccounts,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, accountQuotaBatchCreateToResponse(result))
 }
 
 func (h *AccountQuotaMonitorHandler) Update(c *gin.Context) {
@@ -278,6 +351,49 @@ func (h *AccountQuotaMonitorHandler) Trend(c *gin.Context) {
 		out = append(out, accountQuotaTrendToResponse(p))
 	}
 	response.Success(c, gin.H{"items": out})
+}
+
+func quotaMonitorBatchFiltersFromRequest(req *accountQuotaMonitorBatchAccountFiltersRequest) (service.AccountQuotaMonitorAccountFilters, error) {
+	if req == nil {
+		return service.AccountQuotaMonitorAccountFilters{}, nil
+	}
+	filters := service.AccountQuotaMonitorAccountFilters{
+		Platform:    strings.TrimSpace(req.Platform),
+		AccountType: strings.TrimSpace(req.Type),
+		Status:      strings.TrimSpace(req.Status),
+		Search:      strings.TrimSpace(req.Search),
+		PrivacyMode: strings.TrimSpace(req.PrivacyMode),
+	}
+	if group := strings.TrimSpace(req.Group); group != "" {
+		if group == accountListGroupUngroupedQueryValue {
+			filters.GroupID = service.AccountListGroupUngrouped
+		} else {
+			parsed, err := strconv.ParseInt(group, 10, 64)
+			if err != nil || parsed < 0 {
+				return filters, infraerrors.BadRequest("INVALID_GROUP_FILTER", "invalid group filter")
+			}
+			filters.GroupID = parsed
+		}
+	}
+	return filters, nil
+}
+
+func accountQuotaBatchCreateToResponse(result *service.AccountQuotaMonitorBatchCreateResult) accountQuotaMonitorBatchCreateResponse {
+	resp := accountQuotaMonitorBatchCreateResponse{}
+	if result == nil {
+		return resp
+	}
+	resp.Selected = result.Selected
+	resp.Created = result.Created
+	resp.Updated = result.Updated
+	resp.SkippedExisting = result.SkippedExisting
+	resp.Failed = result.Failed
+	resp.Failures = result.Failures
+	resp.Items = make([]*accountQuotaMonitorResponse, 0, len(result.Items))
+	for _, item := range result.Items {
+		resp.Items = append(resp.Items, accountQuotaMonitorToResponse(item))
+	}
+	return resp
 }
 
 func parseAccountQuotaMonitorID(c *gin.Context) (int64, bool) {

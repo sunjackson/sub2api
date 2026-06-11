@@ -59,11 +59,83 @@
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
             {{ t('common.refresh', '刷新') }}
           </button>
+          <button class="btn btn-secondary" @click="openBatchForm">
+            <Icon name="users" size="sm" />
+            {{ t('admin.accountQuotaMonitor.batchCreate', '批量补齐监控') }}
+          </button>
           <button class="btn btn-primary" @click="openCreateForm">
             <Icon name="plus" size="sm" />
             {{ t('admin.accountQuotaMonitor.create', '新增额度监控') }}
           </button>
         </div>
+      </div>
+
+      <div v-if="showBatchForm" class="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-900/10">
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.accountQuotaMonitor.batchCreate', '批量补齐监控') }}</h4>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accountQuotaMonitor.batchHint', '按账号筛选条件为全部渠道账号补齐额度监控；已存在的监控默认跳过。') }}</p>
+          </div>
+          <button type="button" class="text-gray-400 hover:text-gray-600" @click="closeBatchForm">
+            <Icon name="x" size="sm" />
+          </button>
+        </div>
+        <form class="grid gap-4 lg:grid-cols-3" @submit.prevent="submitBatchForm">
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.batch.accountPlatform', '账号平台') }}</label>
+            <Select v-model="batchForm.account_platform" :options="accountPlatformFilterOptions" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.batch.accountType', '账号类型') }}</label>
+            <Select v-model="batchForm.account_type" :options="accountTypeFilterOptions" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.batch.accountStatus', '账号状态') }}</label>
+            <Select v-model="batchForm.status" :options="accountStatusFilterOptions" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.batch.search', '账号搜索') }}</label>
+            <input v-model="batchForm.search" class="input" :placeholder="t('admin.accountQuotaMonitor.batch.searchPlaceholder', '名称关键字，可留空')" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.form.provider', '中转平台') }}</label>
+            <Select v-model="batchForm.provider" :options="providerOptions" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.form.endpoint', '余额查询端点 / Base URL') }}</label>
+            <input v-model="batchForm.endpoint" class="input" placeholder="https://example.com" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.form.interval', '查询间隔（秒）') }}</label>
+            <input v-model.number="batchForm.interval_seconds" type="number" min="60" max="86400" class="input" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.form.threshold', '低余额阈值') }}</label>
+            <input v-model.number="batchForm.low_balance_threshold" type="number" min="0" step="0.000001" class="input" placeholder="10" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.form.currency', '币种/单位') }}</label>
+            <input v-model="batchForm.currency" class="input" placeholder="USD" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accountQuotaMonitor.form.apiKeyOverride', '覆盖密钥（可选）') }}</label>
+            <input v-model="batchForm.api_key_override" type="password" class="input" autocomplete="new-password" />
+          </div>
+          <div class="flex items-center gap-3">
+            <Toggle :modelValue="batchForm.enabled" @update:modelValue="batchForm.enabled = $event" />
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accountQuotaMonitor.form.enabled', '启用定时查询') }}</span>
+          </div>
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input v-model="batchForm.update_existing" type="checkbox" class="rounded border-gray-300 text-primary-600" />
+            {{ t('admin.accountQuotaMonitor.batch.updateExisting', '覆盖更新已存在监控') }}
+          </label>
+          <div class="flex justify-end gap-2 lg:col-span-3">
+            <button type="button" class="btn btn-secondary" @click="closeBatchForm">{{ t('common.cancel', '取消') }}</button>
+            <button type="submit" class="btn btn-primary" :disabled="submitting">
+              {{ submitting ? t('common.submitting', '提交中...') : t('admin.accountQuotaMonitor.batch.submit', '批量创建/补齐') }}
+            </button>
+          </div>
+        </form>
       </div>
 
       <div v-if="showForm" class="rounded-xl border border-primary-200 bg-primary-50/50 p-4 dark:border-primary-800 dark:bg-primary-900/10">
@@ -308,6 +380,7 @@ import type {
   HistoryItem,
   SummaryResponse,
   TrendPoint,
+  BatchCreateParams,
 } from '@/api/admin/accountQuotaMonitor'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -340,6 +413,7 @@ let searchTimeout: ReturnType<typeof setTimeout> | null = null
 let accountSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const showForm = ref(false)
+const showBatchForm = ref(false)
 const editing = ref<AccountQuotaMonitor | null>(null)
 const accountSearch = ref('')
 const accountResults = ref<Account[]>([])
@@ -357,6 +431,21 @@ const form = reactive({
   low_balance_threshold: null as number | null | '',
   currency: 'USD',
   clear_api_key_override: false,
+})
+
+const batchForm = reactive({
+  account_platform: '',
+  account_type: '',
+  status: 'active',
+  search: '',
+  provider: 'sub2api' as AccountQuotaProvider,
+  endpoint: '',
+  api_key_override: '',
+  enabled: true,
+  interval_seconds: 3600,
+  low_balance_threshold: null as number | null | '',
+  currency: 'USD',
+  update_existing: false,
 })
 
 const columns = computed<Column[]>(() => [
@@ -381,6 +470,28 @@ const enabledFilterOptions = computed(() => [
   { value: '', label: t('admin.accountQuotaMonitor.allEnabled', '全部状态') },
   { value: 'true', label: t('common.enabled', '启用') },
   { value: 'false', label: t('common.disabled', '禁用') },
+])
+const accountPlatformFilterOptions = computed(() => [
+  { value: '', label: t('admin.accountQuotaMonitor.batch.allAccountPlatforms', '全部账号平台') },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'antigravity', label: 'Antigravity' },
+])
+const accountTypeFilterOptions = computed(() => [
+  { value: '', label: t('admin.accountQuotaMonitor.batch.allAccountTypes', '全部账号类型') },
+  { value: 'oauth', label: 'OAuth' },
+  { value: 'setup-token', label: 'Setup Token' },
+  { value: 'apikey', label: 'API Key' },
+  { value: 'upstream', label: 'Upstream' },
+  { value: 'bedrock', label: 'Bedrock' },
+  { value: 'service_account', label: 'Service Account' },
+])
+const accountStatusFilterOptions = computed(() => [
+  { value: '', label: t('admin.accountQuotaMonitor.batch.allAccountStatus', '全部账号状态') },
+  { value: 'active', label: t('admin.channels.statusActive', 'Active') },
+  { value: 'inactive', label: t('admin.accounts.statusInactive', 'Inactive') },
+  { value: 'error', label: t('admin.accounts.statusError', 'Error') },
 ])
 
 const normalizedCurrencyTotals = computed(() => {
@@ -481,11 +592,38 @@ function resetForm() {
 
 function openCreateForm() {
   resetForm()
+  showBatchForm.value = false
   showForm.value = true
+}
+
+function resetBatchForm() {
+  batchForm.account_platform = ''
+  batchForm.account_type = ''
+  batchForm.status = 'active'
+  batchForm.search = ''
+  batchForm.provider = 'sub2api'
+  batchForm.endpoint = ''
+  batchForm.api_key_override = ''
+  batchForm.enabled = true
+  batchForm.interval_seconds = 3600
+  batchForm.low_balance_threshold = null
+  batchForm.currency = 'USD'
+  batchForm.update_existing = false
+}
+
+function openBatchForm() {
+  resetBatchForm()
+  showForm.value = false
+  showBatchForm.value = true
+}
+
+function closeBatchForm() {
+  showBatchForm.value = false
 }
 
 function openEditForm(row: AccountQuotaMonitor) {
   resetForm()
+  showBatchForm.value = false
   editing.value = row
   form.name = row.name
   form.account_id = row.account_id
@@ -531,6 +669,47 @@ function normalizedThreshold(): number | null {
   if (form.low_balance_threshold === null || form.low_balance_threshold === '' || form.low_balance_threshold === undefined) return null
   const value = Number(form.low_balance_threshold)
   return Number.isFinite(value) ? value : null
+}
+
+function normalizedBatchThreshold(): number | null {
+  if (batchForm.low_balance_threshold === null || batchForm.low_balance_threshold === '' || batchForm.low_balance_threshold === undefined) return null
+  const value = Number(batchForm.low_balance_threshold)
+  return Number.isFinite(value) ? value : null
+}
+
+async function submitBatchForm() {
+  submitting.value = true
+  try {
+    const payload: BatchCreateParams = {
+      filters: {
+        platform: batchForm.account_platform || undefined,
+        type: batchForm.account_type || undefined,
+        status: batchForm.status || undefined,
+        search: batchForm.search.trim() || undefined,
+      },
+      provider: batchForm.provider,
+      endpoint: batchForm.endpoint.trim(),
+      enabled: batchForm.enabled,
+      interval_seconds: Number(batchForm.interval_seconds) || 3600,
+      low_balance_threshold: normalizedBatchThreshold(),
+      currency: batchForm.currency.trim() || 'USD',
+      api_key_override: batchForm.api_key_override.trim() || undefined,
+      update_existing: batchForm.update_existing,
+      max_accounts: 1000,
+    }
+    const result = await adminAPI.accountQuotaMonitor.batchCreate(payload)
+    appStore.showSuccess(t(
+      'admin.accountQuotaMonitor.batch.success',
+      { created: result.created, updated: result.updated, skipped: result.skipped_existing, failed: result.failed },
+      `已创建 ${result.created} 个，更新 ${result.updated} 个，跳过 ${result.skipped_existing} 个，失败 ${result.failed} 个`
+    ))
+    closeBatchForm()
+    await reload()
+  } catch (err) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.accountQuotaMonitor.batch.error', '批量创建额度监控失败')))
+  } finally {
+    submitting.value = false
+  }
 }
 
 async function submitForm() {

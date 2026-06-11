@@ -632,6 +632,7 @@ func registerAccountQuotaMonitorRoutes(admin *gin.RouterGroup, h *handler.Handle
 	{
 		monitors.GET("", h.Admin.AccountQuotaMonitor.List)
 		monitors.POST("", h.Admin.AccountQuotaMonitor.Create)
+		monitors.POST("/batch", h.Admin.AccountQuotaMonitor.BatchCreate)
 		monitors.GET("/summary", h.Admin.AccountQuotaMonitor.Summary)
 		monitors.GET("/trend", h.Admin.AccountQuotaMonitor.Trend)
 		monitors.GET("/:id", h.Admin.AccountQuotaMonitor.Get)

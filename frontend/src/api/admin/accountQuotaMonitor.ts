@@ -73,6 +73,45 @@ export type UpdateParams = Partial<CreateParams> & {
   clear_low_balance_threshold?: boolean
 }
 
+export interface BatchFilters {
+  platform?: string
+  type?: string
+  status?: string
+  group?: string
+  search?: string
+  privacy_mode?: string
+}
+
+export interface BatchCreateParams {
+  account_ids?: number[]
+  filters?: BatchFilters
+  provider: AccountQuotaProvider
+  endpoint?: string
+  api_key_override?: string
+  enabled?: boolean
+  interval_seconds?: number
+  low_balance_threshold?: number | null
+  currency?: string
+  update_existing?: boolean
+  max_accounts?: number
+}
+
+export interface BatchFailure {
+  account_id: number
+  account_name: string
+  reason: string
+}
+
+export interface BatchCreateResponse {
+  selected: number
+  created: number
+  updated: number
+  skipped_existing: number
+  failed: number
+  items: AccountQuotaMonitor[]
+  failures: BatchFailure[]
+}
+
 export interface CheckResult {
   monitor_id: number
   account_id: number
@@ -144,6 +183,11 @@ export async function create(params: CreateParams): Promise<AccountQuotaMonitor>
   return data
 }
 
+export async function batchCreate(params: BatchCreateParams): Promise<BatchCreateResponse> {
+  const { data } = await apiClient.post<BatchCreateResponse>('/admin/quota-monitors/batch', params)
+  return data
+}
+
 export async function update(id: number, params: UpdateParams): Promise<AccountQuotaMonitor> {
   const { data } = await apiClient.put<AccountQuotaMonitor>(`/admin/quota-monitors/${id}`, params)
   return data
@@ -181,6 +225,7 @@ export const accountQuotaMonitorAPI = {
   list,
   get,
   create,
+  batchCreate,
   update,
   del,
   runNow,

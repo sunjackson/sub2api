@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 // AccountQuotaMonitorRepository is the persistence port for upstream account quota monitors.
@@ -22,6 +24,7 @@ type AccountQuotaMonitorRepository interface {
 	ComputeMetricsFor(ctx context.Context, ids []int64) (map[int64]AccountQuotaMonitorMetrics, error)
 	Summary(ctx context.Context) (*AccountQuotaMonitorSummary, error)
 	Trend(ctx context.Context, since time.Time, bucket string) ([]*AccountQuotaTrendPoint, error)
+	FindByAccountIDs(ctx context.Context, accountIDs []int64) (map[int64]*AccountQuotaMonitor, error)
 }
 
 // AccountQuotaMonitorScheduler lets CRUD operations keep the background runner in sync.
@@ -116,6 +119,68 @@ func (s *AccountQuotaMonitorService) Create(ctx context.Context, p AccountQuotaM
 	return m, nil
 }
 
+func (s *AccountQuotaMonitorService) BatchCreate(ctx context.Context, p AccountQuotaMonitorBatchCreateParams) (*AccountQuotaMonitorBatchCreateResult, error) {
+	if err := s.validateBatchCreate(ctx, p); err != nil {
+		return nil, err
+	}
+	accounts, err := s.resolveBatchAccounts(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return nil, ErrAccountQuotaMonitorBatchNoAccounts
+	}
+	maxAccounts := p.MaxAccounts
+	if maxAccounts <= 0 {
+		maxAccounts = quotaMonitorBatchDefaultMaxAccounts
+	}
+	if len(accounts) > maxAccounts {
+		return nil, ErrAccountQuotaMonitorBatchTooLarge
+	}
+	existingByAccount, err := s.repo.FindByAccountIDs(ctx, accountIDsFromAccounts(accounts))
+	if err != nil {
+		return nil, fmt.Errorf("find existing account quota monitors: %w", err)
+	}
+
+	result := &AccountQuotaMonitorBatchCreateResult{Selected: int64(len(accounts))}
+	for i := range accounts {
+		account := &accounts[i]
+		if existing := existingByAccount[account.ID]; existing != nil {
+			if !p.UpdateExisting {
+				result.SkippedExisting++
+				continue
+			}
+			if err := s.applyBatchUpdateToExisting(ctx, existing, account, p); err != nil {
+				result.Failed++
+				result.Failures = append(result.Failures, AccountQuotaMonitorBatchFailure{AccountID: account.ID, AccountName: account.Name, Reason: err.Error()})
+				continue
+			}
+			if err := s.repo.Update(ctx, existing); err != nil {
+				result.Failed++
+				result.Failures = append(result.Failures, AccountQuotaMonitorBatchFailure{AccountID: account.ID, AccountName: account.Name, Reason: err.Error()})
+				continue
+			}
+			s.decryptOverrideInPlace(existing)
+			if s.scheduler != nil {
+				s.scheduler.Schedule(existing)
+			}
+			result.Updated++
+			result.Items = append(result.Items, existing)
+			continue
+		}
+
+		m, err := s.createMonitorForAccount(ctx, account, p)
+		if err != nil {
+			result.Failed++
+			result.Failures = append(result.Failures, AccountQuotaMonitorBatchFailure{AccountID: account.ID, AccountName: account.Name, Reason: err.Error()})
+			continue
+		}
+		result.Created++
+		result.Items = append(result.Items, m)
+	}
+	return result, nil
+}
+
 func (s *AccountQuotaMonitorService) Update(ctx context.Context, id int64, p AccountQuotaMonitorUpdateParams) (*AccountQuotaMonitor, error) {
 	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -199,6 +264,170 @@ func (s *AccountQuotaMonitorService) Trend(ctx context.Context, days int, bucket
 		days = 7
 	}
 	return s.repo.Trend(ctx, time.Now().UTC().AddDate(0, 0, -days), bucket)
+}
+
+func (s *AccountQuotaMonitorService) validateBatchCreate(ctx context.Context, p AccountQuotaMonitorBatchCreateParams) error {
+	provider := normalizeQuotaMonitorProvider(p.Provider)
+	if err := validateQuotaMonitorProvider(provider); err != nil {
+		return err
+	}
+	if err := validateQuotaMonitorInterval(normalizeQuotaInterval(p.IntervalSeconds)); err != nil {
+		return err
+	}
+	if err := validateQuotaEndpoint(p.Endpoint); err != nil {
+		return err
+	}
+	if err := validateQuotaThreshold(p.LowBalanceThreshold); err != nil {
+		return err
+	}
+	if len(p.AccountIDs) == 1 && p.AccountIDs[0] > 0 {
+		_, err := s.accountRepo.GetByID(ctx, p.AccountIDs[0])
+		return err
+	}
+	return nil
+}
+
+func (s *AccountQuotaMonitorService) resolveBatchAccounts(ctx context.Context, p AccountQuotaMonitorBatchCreateParams) ([]Account, error) {
+	if len(p.AccountIDs) > 0 {
+		unique := uniquePositiveInt64s(p.AccountIDs)
+		if len(unique) == 0 {
+			return nil, ErrAccountQuotaMonitorBatchNoAccounts
+		}
+		accounts, err := s.accountRepo.GetByIDs(ctx, unique)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]Account, 0, len(accounts))
+		for _, account := range accounts {
+			if account != nil {
+				out = append(out, *account)
+			}
+		}
+		return out, nil
+	}
+	params := pagination.PaginationParams{Page: 1, PageSize: quotaMonitorBatchFetchPageSize, SortBy: "id", SortOrder: pagination.SortOrderAsc}
+	accounts, pageResult, err := s.accountRepo.ListWithFilters(ctx, params,
+		strings.TrimSpace(p.Filters.Platform),
+		strings.TrimSpace(p.Filters.AccountType),
+		strings.TrimSpace(p.Filters.Status),
+		strings.TrimSpace(p.Filters.Search),
+		p.Filters.GroupID,
+		strings.TrimSpace(p.Filters.PrivacyMode),
+	)
+	if err != nil {
+		return nil, err
+	}
+	maxAccounts := p.MaxAccounts
+	if maxAccounts <= 0 {
+		maxAccounts = quotaMonitorBatchDefaultMaxAccounts
+	}
+	if pageResult != nil && pageResult.Total > int64(maxAccounts) {
+		return nil, ErrAccountQuotaMonitorBatchTooLarge
+	}
+	return accounts, nil
+}
+
+func (s *AccountQuotaMonitorService) createMonitorForAccount(ctx context.Context, account *Account, p AccountQuotaMonitorBatchCreateParams) (*AccountQuotaMonitor, error) {
+	if account == nil {
+		return nil, ErrAccountQuotaMonitorMissingAccount
+	}
+	encrypted, err := s.encryptOverride(p.APIKeyOverride)
+	if err != nil {
+		return nil, err
+	}
+	m := &AccountQuotaMonitor{
+		Name:                quotaMonitorNameForAccount(account),
+		AccountID:           account.ID,
+		AccountName:         account.Name,
+		AccountPlatform:     account.Platform,
+		AccountType:         account.Type,
+		Provider:            normalizeQuotaMonitorProvider(p.Provider),
+		Endpoint:            normalizeQuotaEndpoint(p.Endpoint),
+		APIKeyOverride:      encrypted,
+		APIKeyOverrideSet:   strings.TrimSpace(encrypted) != "",
+		Enabled:             p.Enabled,
+		IntervalSeconds:     normalizeQuotaInterval(p.IntervalSeconds),
+		LowBalanceThreshold: cloneFloat64Ptr(p.LowBalanceThreshold),
+		Currency:            normalizeQuotaCurrency(p.Currency),
+		LastStatus:          QuotaMonitorStatusUnknown,
+		CreatedBy:           p.CreatedBy,
+	}
+	if err := s.repo.Create(ctx, m); err != nil {
+		return nil, err
+	}
+	m.APIKeyOverride = strings.TrimSpace(p.APIKeyOverride)
+	m.APIKeyOverrideSet = m.APIKeyOverride != ""
+	if s.scheduler != nil {
+		s.scheduler.Schedule(m)
+	}
+	return m, nil
+}
+
+func (s *AccountQuotaMonitorService) applyBatchUpdateToExisting(ctx context.Context, existing *AccountQuotaMonitor, account *Account, p AccountQuotaMonitorBatchCreateParams) error {
+	if existing == nil || account == nil {
+		return ErrAccountQuotaMonitorMissingAccount
+	}
+	endpoint := normalizeQuotaEndpoint(p.Endpoint)
+	currency := normalizeQuotaCurrency(p.Currency)
+	provider := normalizeQuotaMonitorProvider(p.Provider)
+	interval := normalizeQuotaInterval(p.IntervalSeconds)
+	plainOverride, err := s.encryptOverride(p.APIKeyOverride)
+	if err != nil {
+		return err
+	}
+	existing.Name = quotaMonitorNameForAccount(account)
+	existing.AccountID = account.ID
+	existing.AccountName = account.Name
+	existing.AccountPlatform = account.Platform
+	existing.AccountType = account.Type
+	existing.Provider = provider
+	existing.Endpoint = endpoint
+	existing.Enabled = p.Enabled
+	existing.IntervalSeconds = interval
+	existing.LowBalanceThreshold = cloneFloat64Ptr(p.LowBalanceThreshold)
+	existing.Currency = currency
+	if strings.TrimSpace(p.APIKeyOverride) != "" {
+		existing.APIKeyOverride = plainOverride
+		existing.APIKeyOverrideSet = true
+	}
+	return s.applyUpdate(ctx, existing, AccountQuotaMonitorUpdateParams{})
+}
+
+func accountIDsFromAccounts(accounts []Account) []int64 {
+	ids := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		if accounts[i].ID > 0 {
+			ids = append(ids, accounts[i].ID)
+		}
+	}
+	return ids
+}
+
+func uniquePositiveInt64s(in []int64) []int64 {
+	seen := make(map[int64]struct{}, len(in))
+	out := make([]int64, 0, len(in))
+	for _, id := range in {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func quotaMonitorNameForAccount(account *Account) string {
+	if account == nil {
+		return "账号额度监控"
+	}
+	name := strings.TrimSpace(account.Name)
+	if name == "" {
+		name = fmt.Sprintf("账号 #%d", account.ID)
+	}
+	return name + " 额度监控"
 }
 
 func (s *AccountQuotaMonitorService) validateCreate(ctx context.Context, p AccountQuotaMonitorCreateParams) error {
