@@ -150,13 +150,15 @@ type AccountQuotaMonitorBatchFailure struct {
 }
 
 type AccountQuotaMonitorBatchCreateResult struct {
-	Selected        int64                             `json:"selected"`
-	Created         int64                             `json:"created"`
-	Updated         int64                             `json:"updated"`
-	SkippedExisting int64                             `json:"skipped_existing"`
-	Failed          int64                             `json:"failed"`
-	Items           []*AccountQuotaMonitor            `json:"-"`
-	Failures        []AccountQuotaMonitorBatchFailure `json:"failures"`
+	Selected           int64                             `json:"selected"`
+	Created            int64                             `json:"created"`
+	Updated            int64                             `json:"updated"`
+	SkippedExisting    int64                             `json:"skipped_existing"`
+	SkippedDuplicate   int64                             `json:"skipped_duplicate"`
+	DuplicateEndpoints []string                          `json:"duplicate_endpoints"`
+	Failed             int64                             `json:"failed"`
+	Items              []*AccountQuotaMonitor            `json:"-"`
+	Failures           []AccountQuotaMonitorBatchFailure `json:"failures"`
 }
 
 type AccountQuotaMonitorListParams struct {

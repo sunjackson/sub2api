@@ -143,8 +143,17 @@ func (s *AccountQuotaMonitorService) BatchCreate(ctx context.Context, p AccountQ
 	}
 
 	result := &AccountQuotaMonitorBatchCreateResult{Selected: int64(len(accounts))}
+	endpointOwners := quotaMonitorEndpointOwners(accounts, existingByAccount, p.Endpoint)
 	for i := range accounts {
 		account := &accounts[i]
+		endpointKey := quotaMonitorEndpointKeyForAccount(account, p.Endpoint)
+		if endpointKey != "" {
+			if ownerID, ok := endpointOwners[endpointKey]; ok && ownerID != account.ID {
+				result.SkippedDuplicate++
+				result.DuplicateEndpoints = appendUniqueQuotaEndpoint(result.DuplicateEndpoints, endpointKey)
+				continue
+			}
+		}
 		if existing := existingByAccount[account.ID]; existing != nil {
 			if !p.UpdateExisting {
 				result.SkippedExisting++
@@ -331,6 +340,7 @@ func (s *AccountQuotaMonitorService) createMonitorForAccount(ctx context.Context
 	if account == nil {
 		return nil, ErrAccountQuotaMonitorMissingAccount
 	}
+	endpoint := effectiveQuotaMonitorEndpointForAccount(account, p.Endpoint)
 	encrypted, err := s.encryptOverride(p.APIKeyOverride)
 	if err != nil {
 		return nil, err
@@ -342,7 +352,7 @@ func (s *AccountQuotaMonitorService) createMonitorForAccount(ctx context.Context
 		AccountPlatform:     account.Platform,
 		AccountType:         account.Type,
 		Provider:            normalizeQuotaMonitorProvider(p.Provider),
-		Endpoint:            normalizeQuotaEndpoint(p.Endpoint),
+		Endpoint:            endpoint,
 		APIKeyOverride:      encrypted,
 		APIKeyOverrideSet:   strings.TrimSpace(encrypted) != "",
 		Enabled:             p.Enabled,
@@ -367,7 +377,7 @@ func (s *AccountQuotaMonitorService) applyBatchUpdateToExisting(ctx context.Cont
 	if existing == nil || account == nil {
 		return ErrAccountQuotaMonitorMissingAccount
 	}
-	endpoint := normalizeQuotaEndpoint(p.Endpoint)
+	endpoint := effectiveQuotaMonitorEndpointForAccount(account, p.Endpoint)
 	currency := normalizeQuotaCurrency(p.Currency)
 	provider := normalizeQuotaMonitorProvider(p.Provider)
 	interval := normalizeQuotaInterval(p.IntervalSeconds)
@@ -403,6 +413,26 @@ func accountIDsFromAccounts(accounts []Account) []int64 {
 	return ids
 }
 
+func quotaMonitorEndpointOwners(accounts []Account, existingByAccount map[int64]*AccountQuotaMonitor, overrideEndpoint string) map[string]int64 {
+	owners := make(map[string]int64, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		endpointKey := quotaMonitorEndpointKeyForAccount(account, overrideEndpoint)
+		if endpointKey == "" || account.ID <= 0 {
+			continue
+		}
+		ownerID, exists := owners[endpointKey]
+		if !exists {
+			owners[endpointKey] = account.ID
+			continue
+		}
+		if existingByAccount[ownerID] == nil && existingByAccount[account.ID] != nil {
+			owners[endpointKey] = account.ID
+		}
+	}
+	return owners
+}
+
 func uniquePositiveInt64s(in []int64) []int64 {
 	seen := make(map[int64]struct{}, len(in))
 	out := make([]int64, 0, len(in))
@@ -417,6 +447,58 @@ func uniquePositiveInt64s(in []int64) []int64 {
 		out = append(out, id)
 	}
 	return out
+}
+
+func quotaMonitorEndpointKeyForAccount(account *Account, overrideEndpoint string) string {
+	return normalizeQuotaMonitorEndpointKey(effectiveQuotaMonitorEndpointForAccount(account, overrideEndpoint))
+}
+
+func effectiveQuotaMonitorEndpointForAccount(account *Account, overrideEndpoint string) string {
+	endpoint := strings.TrimSpace(overrideEndpoint)
+	if endpoint == "" && account != nil {
+		endpoint = strings.TrimSpace(account.GetCredential("base_url"))
+		if endpoint == "" && account.IsCustomBaseURLEnabled() {
+			endpoint = strings.TrimSpace(account.GetCustomBaseURL())
+		}
+	}
+	return normalizeQuotaEndpoint(endpoint)
+}
+
+func normalizeQuotaMonitorEndpointKey(raw string) string {
+	endpoint := normalizeQuotaEndpoint(raw)
+	if endpoint == "" {
+		return ""
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(strings.TrimRight(endpoint, "/"))
+	}
+	u.Fragment = ""
+	u.RawQuery = ""
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	path := strings.TrimRight(u.EscapedPath(), "/")
+	if isVersionOnlyPath(path) {
+		u.Path = ""
+		u.RawPath = ""
+	} else {
+		u.Path = path
+		u.RawPath = ""
+	}
+	return strings.TrimRight(u.String(), "/")
+}
+
+func appendUniqueQuotaEndpoint(items []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return items
+	}
+	for _, existing := range items {
+		if existing == value {
+			return items
+		}
+	}
+	return append(items, value)
 }
 
 func quotaMonitorNameForAccount(account *Account) string {

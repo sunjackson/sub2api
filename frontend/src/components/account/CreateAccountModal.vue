@@ -798,6 +798,36 @@
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
         </div>
+        <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaMonitor.title') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaMonitor.detectedProvider', { provider: quotaMonitorProviderLabel }) }}
+              </p>
+            </div>
+            <button
+              type="button"
+              :disabled="!quotaMonitorSupported"
+              @click="quotaMonitorSupported && (quotaMonitorEnabled = !quotaMonitorEnabled)"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                quotaMonitorEnabled && quotaMonitorSupported ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600',
+                quotaMonitorSupported ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  quotaMonitorEnabled && quotaMonitorSupported ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ quotaMonitorSupported ? t('admin.accounts.quotaMonitor.supportedHint') : t('admin.accounts.quotaMonitor.unsupportedHint') }}
+          </p>
+        </div>
       </div>
 
       <!-- Vertex Service Account -->
@@ -1042,6 +1072,36 @@
             "
           />
           <p class="input-hint">{{ apiKeyHint }}</p>
+        </div>
+        <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.quotaMonitor.title') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.quotaMonitor.detectedProvider', { provider: quotaMonitorProviderLabel }) }}
+              </p>
+            </div>
+            <button
+              type="button"
+              :disabled="!quotaMonitorSupported"
+              @click="quotaMonitorSupported && (quotaMonitorEnabled = !quotaMonitorEnabled)"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                quotaMonitorEnabled && quotaMonitorSupported ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600',
+                quotaMonitorSupported ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  quotaMonitorEnabled && quotaMonitorSupported ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ quotaMonitorSupported ? t('admin.accounts.quotaMonitor.supportedHint') : t('admin.accounts.quotaMonitor.unsupportedHint') }}
+          </p>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -3241,6 +3301,11 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import {
+  detectQuotaMonitorProvider,
+  normalizeQuotaMonitorEndpointKey,
+  type AutoQuotaMonitorProvider
+} from '@/utils/quotaMonitorDetection'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -3391,6 +3456,29 @@ const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
 const poolModeEnabled = ref(false)
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
+const quotaMonitorEnabled = ref(false)
+
+const quotaMonitorBaseUrl = computed(() => {
+  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+    return upstreamBaseUrl.value.trim()
+  }
+  if (form.type === 'apikey' && form.platform !== 'antigravity') {
+    return apiKeyBaseUrl.value.trim()
+  }
+  return ''
+})
+
+const detectedQuotaProvider = computed(() => detectQuotaMonitorProvider(quotaMonitorBaseUrl.value))
+const quotaMonitorSupported = computed(() => detectedQuotaProvider.value === 'sub2api' || detectedQuotaProvider.value === 'newapi')
+const quotaMonitorProviderForCreate = computed<AutoQuotaMonitorProvider | ''>(() =>
+  quotaMonitorSupported.value ? detectedQuotaProvider.value as AutoQuotaMonitorProvider : ''
+)
+const quotaMonitorProviderLabel = computed(() => {
+  if (detectedQuotaProvider.value === 'sub2api') return 'sub2api'
+  if (detectedQuotaProvider.value === 'newapi') return 'NewAPI'
+  return t('admin.accounts.quotaMonitor.providerOther')
+})
+
 
 function parsePoolModeRetryStatusCodes(input: string): number[] {
   if (!input || !input.trim()) return []
@@ -4170,10 +4258,77 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 }
 
+const quotaMonitorEndpointForPayload = (payload: CreateAccountRequest) => {
+  const currentBaseURL = quotaMonitorBaseUrl.value.trim()
+  if (currentBaseURL) return currentBaseURL
+
+  const credentialBaseURL = payload.credentials?.base_url
+  if (typeof credentialBaseURL === 'string' && credentialBaseURL.trim()) {
+    return credentialBaseURL.trim()
+  }
+
+  const customBaseURL = payload.extra?.custom_base_url
+  if (typeof customBaseURL === 'string' && customBaseURL.trim()) {
+    return customBaseURL.trim()
+  }
+
+  return ''
+}
+
+const maybeCreateQuotaMonitor = async (accountId: number, payload: CreateAccountRequest) => {
+  if (!quotaMonitorEnabled.value || !quotaMonitorSupported.value || accountId <= 0) {
+    return
+  }
+
+  const provider = quotaMonitorProviderForCreate.value
+  if (!provider) return
+
+  const endpoint = quotaMonitorEndpointForPayload(payload)
+  if (!endpoint) {
+    appStore.showWarning(t('admin.accounts.quotaMonitor.noEndpoint'))
+    return
+  }
+
+  try {
+    const endpointKey = normalizeQuotaMonitorEndpointKey(endpoint)
+    const existing = await adminAPI.accountQuotaMonitor.list({
+      page: 1,
+      page_size: 100,
+      search: endpointKey || endpoint
+    })
+    const duplicate = (existing.items || []).some((item) =>
+      normalizeQuotaMonitorEndpointKey(item.endpoint || '') === endpointKey
+    )
+    if (duplicate) {
+      appStore.showInfo(t('admin.accounts.quotaMonitor.duplicateSkipped'))
+      return
+    }
+
+    await adminAPI.accountQuotaMonitor.create({
+      name: `${payload.name} ${t('admin.accounts.quotaMonitor.nameSuffix')}`,
+      account_id: accountId,
+      provider,
+      endpoint,
+      enabled: true,
+      interval_seconds: 3600,
+      currency: 'USD'
+    })
+  } catch (error: any) {
+    const message = error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.quotaMonitor.createFailed')
+    appStore.showWarning(`${t('admin.accounts.quotaMonitor.createFailed')}: ${message}`)
+  }
+}
+
+const createAccountWithOptionalQuotaMonitor = async (payload: CreateAccountRequest) => {
+  const created = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+  await maybeCreateQuotaMonitor(created.id, payload)
+  return created
+}
+
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    await createAccountWithOptionalQuotaMonitor(payload)
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
@@ -4235,6 +4390,7 @@ const resetForm = () => {
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
   poolModeRetryStatusCodesInput.value = ''
+  quotaMonitorEnabled.value = false
   customErrorCodesEnabled.value = false
   selectedErrorCodes.value = []
   customErrorCodeInput.value = null
@@ -4836,7 +4992,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      await createAccountWithOptionalQuotaMonitor({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -5040,7 +5196,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          await adminAPI.accounts.create({
+          await createAccountWithOptionalQuotaMonitor({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -5154,7 +5310,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
-        await adminAPI.accounts.create(createPayload)
+        await createAccountWithOptionalQuotaMonitor(createPayload)
         successCount++
       } catch (error: any) {
         failedCount++
@@ -5479,7 +5635,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials.temp_unschedulable_rules = tempUnschedPayload
         }
 
-        await adminAPI.accounts.create({
+        await createAccountWithOptionalQuotaMonitor({
           name: accountName,
           notes: form.notes,
           platform: form.platform,

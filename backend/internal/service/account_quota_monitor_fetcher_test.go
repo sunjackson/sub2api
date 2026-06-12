@@ -76,3 +76,9 @@ func TestSanitizeQuotaMonitorErrorRedactsExactRelayKey(t *testing.T) {
 	require.NotContains(t, msg, apiKey)
 	require.Contains(t, msg, "***REDACTED***")
 }
+
+func TestQuotaCandidateURLsIncludesNewAPITokenUsageFirst(t *testing.T) {
+	got := quotaCandidateURLs("https://relay.example.com/v1", QuotaMonitorProviderNewAPI)
+	require.NotEmpty(t, got)
+	require.Equal(t, "https://relay.example.com/api/usage/token/", got[0])
+}

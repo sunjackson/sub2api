@@ -107,6 +107,8 @@ export interface BatchCreateResponse {
   created: number
   updated: number
   skipped_existing: number
+  skipped_duplicate: number
+  duplicate_endpoints: string[]
   failed: number
   items: AccountQuotaMonitor[]
   failures: BatchFailure[]

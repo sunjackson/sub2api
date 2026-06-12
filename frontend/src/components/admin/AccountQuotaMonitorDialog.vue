@@ -700,8 +700,14 @@ async function submitBatchForm() {
     const result = await adminAPI.accountQuotaMonitor.batchCreate(payload)
     appStore.showSuccess(t(
       'admin.accountQuotaMonitor.batch.success',
-      { created: result.created, updated: result.updated, skipped: result.skipped_existing, failed: result.failed },
-      `已创建 ${result.created} 个，更新 ${result.updated} 个，跳过 ${result.skipped_existing} 个，失败 ${result.failed} 个`
+      {
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped_existing,
+        duplicates: result.skipped_duplicate || 0,
+        failed: result.failed
+      },
+      `已创建 ${result.created} 个，更新 ${result.updated} 个，跳过 ${result.skipped_existing} 个，重复端点 ${result.skipped_duplicate || 0} 个，失败 ${result.failed} 个`
     ))
     closeBatchForm()
     await reload()

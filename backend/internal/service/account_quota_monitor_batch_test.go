@@ -277,3 +277,61 @@ func TestAccountQuotaMonitorBatchCreateCanUpdateExisting(t *testing.T) {
 	require.NotNil(t, updated.LowBalanceThreshold)
 	require.Equal(t, threshold, *updated.LowBalanceThreshold)
 }
+
+func TestAccountQuotaMonitorBatchCreateDeduplicatesByEffectiveEndpoint(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
+		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay.example.com/v1/"}},
+		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://RELAY.example.com/api/v1"}},
+		{ID: 3, Name: "a3", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://other.example.com"}},
+	}}
+	repo := &quotaBatchRepoStub{}
+	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+
+	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
+		Provider:        QuotaMonitorProviderSub2API,
+		Enabled:         true,
+		IntervalSeconds: 3600,
+		Currency:        "USD",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(3), res.Selected)
+	require.Equal(t, int64(2), res.Created)
+	require.Equal(t, int64(1), res.SkippedDuplicate)
+	require.ElementsMatch(t, []string{"https://relay.example.com"}, res.DuplicateEndpoints)
+	require.Len(t, repo.created, 2)
+	require.Equal(t, int64(1), repo.created[0].AccountID)
+	require.Equal(t, int64(3), repo.created[1].AccountID)
+}
+
+func TestAccountQuotaMonitorBatchCreateDedupPrefersExistingEndpointOwner(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
+		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://same.example.com/v1"}},
+		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://same.example.com/api/v1/"}},
+	}}
+	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{
+		2: {ID: 9, AccountID: 2, Name: "existing", Provider: QuotaMonitorProviderSub2API, Enabled: true, IntervalSeconds: 3600, Currency: "USD"},
+	}}
+	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+
+	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
+		Provider:        QuotaMonitorProviderSub2API,
+		Enabled:         true,
+		IntervalSeconds: 3600,
+		Currency:        "USD",
+		UpdateExisting:  false,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(0), res.Created)
+	require.Equal(t, int64(1), res.SkippedExisting)
+	require.Equal(t, int64(1), res.SkippedDuplicate)
+	require.Empty(t, repo.created)
+	require.Empty(t, repo.updated)
+}
+
+func TestNormalizeQuotaMonitorEndpointKey(t *testing.T) {
+	require.Equal(t, "https://relay.example.com", normalizeQuotaMonitorEndpointKey("https://RELAY.example.com/v1/?x=1#frag"))
+	require.Equal(t, "https://relay.example.com", normalizeQuotaMonitorEndpointKey("https://relay.example.com/api/v1/"))
+	require.Equal(t, "https://relay.example.com/custom", normalizeQuotaMonitorEndpointKey("https://relay.example.com/custom/"))
+}

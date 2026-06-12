@@ -3562,6 +3562,17 @@ export default {
       poolModeRetryStatusCodes: 'Retry Status Codes',
       poolModeRetryStatusCodesHint:
         'Comma-separated HTTP status codes (100-599) that trigger same-account retry in pool mode. Leave blank to use defaults ({default}).',
+      quotaMonitor: {
+        title: 'Balance Monitor',
+        detectedProvider: 'Detected: {provider}',
+        providerOther: 'Other',
+        supportedHint: 'When enabled, the new account is added to quota monitoring. The server reuses the saved account key and never returns it to the frontend.',
+        unsupportedHint: 'This Base URL is detected as Other and does not support automatic balance monitoring. Configure it manually in Quota Monitor.',
+        noEndpoint: 'Account was created, but no Base URL is available for balance monitoring',
+        createFailed: 'Account was created, but automatic balance monitor creation failed',
+        nameSuffix: 'Quota Monitor',
+        duplicateSkipped: 'This Base URL already has a balance monitor, so no duplicate was created.',
+      },
       customErrorCodes: 'Custom Error Codes',
       customErrorCodesHint: 'Only stop scheduling for selected error codes',
       customErrorCodesWarning:

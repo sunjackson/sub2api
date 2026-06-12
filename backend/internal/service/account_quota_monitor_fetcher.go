@@ -162,6 +162,7 @@ func isVersionOnlyPath(path string) bool {
 
 func quotaCandidatePaths(provider string) []string {
 	common := []string{
+		"/api/usage/token/",
 		"/api/user/self",
 		"/api/user/dashboard",
 		"/api/token/self",
@@ -175,9 +176,9 @@ func quotaCandidatePaths(provider string) []string {
 	}
 	switch provider {
 	case QuotaMonitorProviderSub2API:
-		return append([]string{"/api/v1/user/profile", "/api/v1/user"}, common...)
+		return append([]string{"/api/usage/token/", "/api/v1/user/profile", "/api/v1/user"}, common...)
 	case QuotaMonitorProviderNewAPI:
-		return append([]string{"/api/user/self", "/api/user/dashboard"}, common...)
+		return append([]string{"/api/usage/token/", "/api/user/self", "/api/user/dashboard"}, common...)
 	default:
 		return common
 	}
