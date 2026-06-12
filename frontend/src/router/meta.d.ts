@@ -64,5 +64,10 @@ declare module 'vue-router' {
      * i18n key for the page description
      */
     descriptionKey?: string
+
+    /**
+     * Open the account quota monitor panel when entering this route.
+     */
+    openAccountQuotaMonitor?: boolean
   }
 }

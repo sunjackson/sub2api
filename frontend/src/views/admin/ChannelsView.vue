@@ -616,7 +616,7 @@
 
     <AccountQuotaMonitorDialog
       :show="showQuotaMonitorDialog"
-      @close="showQuotaMonitorDialog = false"
+      @close="closeQuotaMonitorDialog"
     />
 
     <!-- Delete Confirmation -->
@@ -634,8 +634,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
@@ -663,6 +664,8 @@ import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const route = useRoute()
+const router = useRouter()
 
 // Web Search global enabled state (loaded once on mount)
 const webSearchGlobalEnabled = ref(false)
@@ -748,6 +751,21 @@ const submitting = ref(false)
 const showDeleteDialog = ref(false)
 const showQuotaMonitorDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
+
+function syncQuotaMonitorRoute() {
+  if (route.meta.openAccountQuotaMonitor === true) {
+    showQuotaMonitorDialog.value = true
+  }
+}
+
+function closeQuotaMonitorDialog() {
+  showQuotaMonitorDialog.value = false
+  if (route.meta.openAccountQuotaMonitor === true) {
+    router.replace('/admin/channels/pricing')
+  }
+}
+
+watch(() => route.fullPath, syncQuotaMonitorRoute, { immediate: true })
 const activeTab = ref<string>('basic')
 
 // Groups
