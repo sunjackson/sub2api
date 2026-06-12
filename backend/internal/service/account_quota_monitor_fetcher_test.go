@@ -63,6 +63,46 @@ func TestParseQuotaPayload_FlexibleShapes(t *testing.T) {
 	}
 }
 
+func TestParseQuotaPayload_ScalesNewAPIQuotaUnits(t *testing.T) {
+	got, err := parseQuotaPayloadWithOptions([]byte(`{
+		"code": true,
+		"message": "ok",
+		"data": {
+			"object": "token_usage",
+			"total_granted": 1000000,
+			"total_used": 250000,
+			"total_available": 750000,
+			"unlimited_quota": false
+		}
+	}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderNewAPI, Endpoint: "https://relay.example.com/api/usage/token/"})
+	require.NoError(t, err)
+	require.NotNil(t, got.Balance)
+	require.NotNil(t, got.QuotaTotal)
+	require.NotNil(t, got.QuotaUsed)
+	require.InDelta(t, 1.5, *got.Balance, 0.000001)
+	require.InDelta(t, 2.0, *got.QuotaTotal, 0.000001)
+	require.InDelta(t, 0.5, *got.QuotaUsed, 0.000001)
+	require.Equal(t, "USD", got.Currency)
+}
+
+func TestParseQuotaPayload_DoesNotScaleOpenAICreditGrants(t *testing.T) {
+	body := []byte(`{"total_granted":20,"total_used":3.5,"total_available":16.5}`)
+
+	defaultParsed, err := parseQuotaPayload(body)
+	require.NoError(t, err)
+	require.NotNil(t, defaultParsed.Balance)
+	require.InDelta(t, 16.5, *defaultParsed.Balance, 0.000001)
+
+	creditGrantsParsed, err := parseQuotaPayloadWithOptions(body, quotaPayloadParseOptions{Provider: QuotaMonitorProviderNewAPI, Endpoint: "https://api.openai.com/v1/dashboard/billing/credit_grants"})
+	require.NoError(t, err)
+	require.NotNil(t, creditGrantsParsed.Balance)
+	require.NotNil(t, creditGrantsParsed.QuotaTotal)
+	require.NotNil(t, creditGrantsParsed.QuotaUsed)
+	require.InDelta(t, 16.5, *creditGrantsParsed.Balance, 0.000001)
+	require.InDelta(t, 20, *creditGrantsParsed.QuotaTotal, 0.000001)
+	require.InDelta(t, 3.5, *creditGrantsParsed.QuotaUsed, 0.000001)
+}
+
 func TestParseQuotaPayload_RejectsUnrecognizedPayload(t *testing.T) {
 	_, err := parseQuotaPayload([]byte(`{"data":{"message":"ok"}}`))
 	require.Error(t, err)
