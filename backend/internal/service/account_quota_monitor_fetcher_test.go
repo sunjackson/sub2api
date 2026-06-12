@@ -85,6 +85,73 @@ func TestParseQuotaPayload_ScalesNewAPIQuotaUnits(t *testing.T) {
 	require.Equal(t, "USD", got.Currency)
 }
 
+func TestParseQuotaPayload_DerivesBalanceFromReversedTotalAndUsed(t *testing.T) {
+	got, err := parseQuotaPayloadWithOptions([]byte(`{"data":{"total":0,"used":9.47115}}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderCustom, Endpoint: "https://relay.example.com/api/user/dashboard"})
+	require.NoError(t, err)
+	require.NotNil(t, got.Balance)
+	require.NotNil(t, got.QuotaTotal)
+	require.NotNil(t, got.QuotaUsed)
+	require.InDelta(t, 9.47115, *got.Balance, 0.000001)
+	require.InDelta(t, 9.47115, *got.QuotaTotal, 0.000001)
+	require.InDelta(t, 0, *got.QuotaUsed, 0.000001)
+}
+
+func TestParseQuotaPayload_NormalizesNegativeBalanceFromReversedTotalAndUsed(t *testing.T) {
+	got, err := parseQuotaPayloadWithOptions([]byte(`{"data":{"balance":-9.47115,"total":0,"used":9.47115}}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderCustom, Endpoint: "https://relay.example.com/api/user/dashboard"})
+	require.NoError(t, err)
+	require.NotNil(t, got.Balance)
+	require.NotNil(t, got.QuotaTotal)
+	require.NotNil(t, got.QuotaUsed)
+	require.InDelta(t, 9.47115, *got.Balance, 0.000001)
+	require.InDelta(t, 9.47115, *got.QuotaTotal, 0.000001)
+	require.InDelta(t, 0, *got.QuotaUsed, 0.000001)
+}
+
+func TestParseQuotaPayload_NormalizesNegativeNewAPITokenUsage(t *testing.T) {
+	got, err := parseQuotaPayloadWithOptions([]byte(`{
+		"data": {
+			"object": "token_usage",
+			"total_available": -905861,
+			"total_granted": 0,
+			"total_used": 905861,
+			"unlimited_quota": false
+		}
+	}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderNewAPI, Endpoint: "https://relay.example.com/api/usage/token/"})
+	require.NoError(t, err)
+	require.NotNil(t, got.Balance)
+	require.NotNil(t, got.QuotaTotal)
+	require.NotNil(t, got.QuotaUsed)
+	require.InDelta(t, 1.811722, *got.Balance, 0.000001)
+	require.InDelta(t, 1.811722, *got.QuotaTotal, 0.000001)
+	require.InDelta(t, 0, *got.QuotaUsed, 0.000001)
+}
+
+func TestParseQuotaPayload_RejectsGenericNegativeOverspend(t *testing.T) {
+	_, err := parseQuotaPayloadWithOptions([]byte(`{"data":{"balance":-5,"total":10,"used":15}}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderCustom, Endpoint: "https://relay.example.com/custom/quota"})
+	require.Error(t, err)
+}
+
+func TestParseQuotaPayload_NewAPIUserQuotaUsesQuotaAsRemaining(t *testing.T) {
+	got, err := parseQuotaPayloadWithOptions([]byte(`{"data":{"quota":1000000,"used_quota":250000}}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderNewAPI, Endpoint: "https://relay.example.com/api/user/self"})
+	require.NoError(t, err)
+	require.NotNil(t, got.Balance)
+	require.NotNil(t, got.QuotaUsed)
+	require.InDelta(t, 2.0, *got.Balance, 0.000001)
+	require.InDelta(t, 0.5, *got.QuotaUsed, 0.000001)
+	require.Equal(t, "USD", got.Currency)
+}
+
+func TestParseQuotaPayload_DerivesReversedDashboardUsage(t *testing.T) {
+	got, err := parseQuotaPayloadWithOptions([]byte(`{"data":{"total":0,"used":250000}}`), quotaPayloadParseOptions{Provider: QuotaMonitorProviderNewAPI, Endpoint: "https://relay.example.com/api/user/dashboard"})
+	require.NoError(t, err)
+	require.NotNil(t, got.Balance)
+	require.NotNil(t, got.QuotaTotal)
+	require.NotNil(t, got.QuotaUsed)
+	require.InDelta(t, 0.5, *got.Balance, 0.000001)
+	require.InDelta(t, 0.5, *got.QuotaTotal, 0.000001)
+	require.InDelta(t, 0, *got.QuotaUsed, 0.000001)
+}
+
 func TestParseQuotaPayload_DoesNotScaleOpenAICreditGrants(t *testing.T) {
 	body := []byte(`{"total_granted":20,"total_used":3.5,"total_available":16.5}`)
 

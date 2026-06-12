@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,8 +14,13 @@ import (
 )
 
 const newAPIQuotaPerUnit = 500000.0
+const quotaBalanceNormalizationEpsilon = 1e-9
 
 var quotaMonitorHTTPClient = newSSRFSafeHTTPClient(quotaMonitorHTTPTimeout)
+
+type accountQuotaFetchClient interface {
+	Fetch(ctx context.Context, in accountQuotaFetchInput) (*AccountQuotaCheckResult, error)
+}
 
 type accountQuotaFetcher struct {
 	client *http.Client
@@ -217,9 +223,16 @@ func parseQuotaPayloadWithOptions(body []byte, opts quotaPayloadParseOptions) (*
 	if parsed == nil || (parsed.Balance == nil && parsed.QuotaTotal == nil && parsed.QuotaUsed == nil) {
 		return nil, fmt.Errorf("quota response did not contain a recognizable balance or quota field")
 	}
-	if parsed.Balance == nil && parsed.QuotaTotal != nil && parsed.QuotaUsed != nil {
-		remaining := *parsed.QuotaTotal - *parsed.QuotaUsed
-		parsed.Balance = &remaining
+	normalizeParsedQuotaBalance(parsed, opts)
+	if parsed.Balance == nil {
+		return nil, fmt.Errorf("quota response did not contain a recognizable remaining balance field")
+	}
+	if *parsed.Balance < 0 {
+		if math.Abs(*parsed.Balance) <= quotaBalanceNormalizationEpsilon {
+			*parsed.Balance = 0
+		} else {
+			return nil, fmt.Errorf("quota response contained a negative remaining balance that could not be normalized")
+		}
 	}
 	return parsed, nil
 }
@@ -248,12 +261,12 @@ func scanQuotaValue(v any, opts quotaPayloadParseOptions) *parsedQuotaPayload {
 func parseQuotaMap(m map[string]any, opts quotaPayloadParseOptions) *parsedQuotaPayload {
 	p := &parsedQuotaPayload{}
 	p.Balance, p.balanceSourceKey = firstNumberFromMap(m,
+		"total_available", "remain_quota", "remaining_quota", "quota_remaining", "left_quota",
 		"balance", "remaining_balance", "remaining", "available_balance",
-		"total_available", "available", "credit", "credits", "quota", "remaining_quota",
-		"quota_remaining", "remain_quota", "left_quota",
+		"available", "credit", "credits", "quota",
 	)
 	p.QuotaTotal, p.totalSourceKey = firstNumberFromMap(m,
-		"quota_total", "total_quota", "total", "total_granted", "granted", "hard_limit_usd", "limit", "quota_limit",
+		"total_granted", "quota_total", "total_quota", "total", "granted", "hard_limit_usd", "limit", "quota_limit",
 	)
 	p.QuotaUsed, p.usedSourceKey = firstNumberFromMap(m,
 		"quota_used", "used_quota", "used", "total_used", "usage", "used_amount", "consumed", "spent",
@@ -268,6 +281,43 @@ func parseQuotaMap(m map[string]any, opts quotaPayloadParseOptions) *parsedQuota
 	return p
 }
 
+func shouldDeriveBalanceFromTotalAndUsed(p *parsedQuotaPayload) bool {
+	return p != nil && p.QuotaTotal != nil && p.QuotaUsed != nil
+}
+
+func normalizeParsedQuotaBalance(p *parsedQuotaPayload, opts quotaPayloadParseOptions) {
+	if p == nil || !shouldDeriveBalanceFromTotalAndUsed(p) {
+		return
+	}
+	if p.Balance != nil && *p.Balance >= 0 {
+		return
+	}
+	remaining := *p.QuotaTotal - *p.QuotaUsed
+	if remaining < 0 {
+		if !shouldReverseQuotaTotalAndUsed(p, opts) {
+			if p.Balance == nil {
+				p.Balance = &remaining
+			}
+			return
+		}
+		remaining = *p.QuotaUsed - *p.QuotaTotal
+		p.QuotaTotal, p.QuotaUsed = cloneFloat64Ptr(p.QuotaUsed), cloneFloat64Ptr(p.QuotaTotal)
+	}
+	p.Balance = &remaining
+}
+
+func shouldReverseQuotaTotalAndUsed(p *parsedQuotaPayload, opts quotaPayloadParseOptions) bool {
+	if p == nil || isOpenAICreditGrantsEndpoint(opts.Endpoint) || !isNewAPIQuotaEndpoint(opts.Endpoint) {
+		return false
+	}
+	if p.totalSourceKey == "total" && p.usedSourceKey == "used" {
+		return true
+	}
+	return p.balanceSourceKey == "total_available" &&
+		p.totalSourceKey == "total_granted" &&
+		p.usedSourceKey == "total_used"
+}
+
 func shouldScaleNewAPIQuotaMap(m map[string]any, opts quotaPayloadParseOptions, p *parsedQuotaPayload) bool {
 	if p == nil {
 		return false
@@ -275,10 +325,10 @@ func shouldScaleNewAPIQuotaMap(m map[string]any, opts quotaPayloadParseOptions, 
 	if hasNewAPIQuotaShapeIndicator(m) {
 		return true
 	}
-	if !hasNewAPIQuotaSourceKey(p) {
+	if isOpenAICreditGrantsEndpoint(opts.Endpoint) {
 		return false
 	}
-	if isOpenAICreditGrantsEndpoint(opts.Endpoint) {
+	if !hasNewAPIQuotaSourceKey(p) && !looksLikeNewAPIQuotaPoints(p) {
 		return false
 	}
 	if isNewAPIQuotaEndpoint(opts.Endpoint) {
@@ -290,6 +340,18 @@ func shouldScaleNewAPIQuotaMap(m map[string]any, opts quotaPayloadParseOptions, 
 	default:
 		return false
 	}
+}
+
+func looksLikeNewAPIQuotaPoints(p *parsedQuotaPayload) bool {
+	if p == nil {
+		return false
+	}
+	for _, v := range []*float64{p.Balance, p.QuotaTotal, p.QuotaUsed} {
+		if v != nil && (*v >= 10000 || *v <= -10000) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasNewAPIQuotaShapeIndicator(m map[string]any) bool {

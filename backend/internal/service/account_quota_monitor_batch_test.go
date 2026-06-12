@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +16,38 @@ type quotaBatchEncryptorStub struct{}
 func (quotaBatchEncryptorStub) Encrypt(plaintext string) (string, error) {
 	return "enc:" + plaintext, nil
 }
-func (quotaBatchEncryptorStub) Decrypt(ciphertext string) (string, error) { return ciphertext, nil }
+func (quotaBatchEncryptorStub) Decrypt(ciphertext string) (string, error) {
+	return strings.TrimPrefix(ciphertext, "enc:"), nil
+}
+
+type quotaBatchFetchStub struct {
+	errByAccount map[int64]error
+	calls        []accountQuotaFetchInput
+}
+
+func (f *quotaBatchFetchStub) Fetch(_ context.Context, in accountQuotaFetchInput) (*AccountQuotaCheckResult, error) {
+	f.calls = append(f.calls, in)
+	if f.errByAccount != nil {
+		if err := f.errByAccount[quotaFetchAccountIDFromKey(in.APIKey)]; err != nil {
+			return nil, err
+		}
+	}
+	balance := 1.0
+	return &AccountQuotaCheckResult{Balance: &balance, Currency: "USD", Status: QuotaMonitorStatusOK}, nil
+}
+
+func quotaFetchAccountIDFromKey(key string) int64 {
+	var id int64
+	_, _ = fmt.Sscanf(key, "key-%d", &id)
+	return id
+}
+
+func newQuotaBatchService(repo *quotaBatchRepoStub, accountRepo *quotaBatchAccountRepoStub) (*AccountQuotaMonitorService, *quotaBatchFetchStub) {
+	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+	fetcher := &quotaBatchFetchStub{}
+	svc.fetcher = fetcher
+	return svc, fetcher
+}
 
 type quotaBatchRepoStub struct {
 	created  []*AccountQuotaMonitor
@@ -205,11 +238,11 @@ func (r *quotaBatchAccountRepoStub) RevertProxyFallback(context.Context, int64) 
 
 func TestAccountQuotaMonitorBatchCreateCreatesAllMatchedAccounts(t *testing.T) {
 	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
-		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
-		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
+		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay1.example.com", "api_key": "key-1"}},
+		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay2.example.com", "api_key": "key-2"}},
 	}}
 	repo := &quotaBatchRepoStub{}
-	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+	svc, _ := newQuotaBatchService(repo, accountRepo)
 
 	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
 		Filters:         AccountQuotaMonitorAccountFilters{Platform: PlatformOpenAI, AccountType: AccountTypeAPIKey, Status: StatusActive, Search: "a"},
@@ -230,9 +263,9 @@ func TestAccountQuotaMonitorBatchCreateCreatesAllMatchedAccounts(t *testing.T) {
 }
 
 func TestAccountQuotaMonitorBatchCreateSkipsExistingByDefault(t *testing.T) {
-	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}}}
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay1.example.com", "api_key": "key-1"}}}}
 	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{1: {ID: 7, AccountID: 1, Name: "old", Provider: QuotaMonitorProviderNewAPI, Enabled: true, IntervalSeconds: 3600, Currency: "USD"}}}
-	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+	svc, _ := newQuotaBatchService(repo, accountRepo)
 
 	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
 		AccountIDs:          []int64{1},
@@ -251,9 +284,9 @@ func TestAccountQuotaMonitorBatchCreateSkipsExistingByDefault(t *testing.T) {
 
 func TestAccountQuotaMonitorBatchCreateCanUpdateExisting(t *testing.T) {
 	threshold := 10.0
-	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}}}
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay1.example.com", "api_key": "key-1"}}}}
 	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{1: {ID: 7, AccountID: 1, Name: "old", Provider: QuotaMonitorProviderNewAPI, Enabled: true, IntervalSeconds: 3600, Currency: "USD"}}}
-	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+	svc, _ := newQuotaBatchService(repo, accountRepo)
 
 	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
 		AccountIDs:          []int64{1},
@@ -278,14 +311,61 @@ func TestAccountQuotaMonitorBatchCreateCanUpdateExisting(t *testing.T) {
 	require.Equal(t, threshold, *updated.LowBalanceThreshold)
 }
 
+func TestAccountQuotaMonitorBatchUpdateExistingSkipsFetchFailure(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay1.example.com", "api_key": "key-1"}}}}
+	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{1: {ID: 7, AccountID: 1, Name: "old", Provider: QuotaMonitorProviderNewAPI, Enabled: true, IntervalSeconds: 3600, Currency: "USD", APIKeyOverride: "enc:key-2", APIKeyOverrideSet: true}}}
+	svc, fetcher := newQuotaBatchService(repo, accountRepo)
+	fetcher.errByAccount = map[int64]error{2: fmt.Errorf("fetch failed")}
+
+	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
+		AccountIDs:      []int64{1},
+		Provider:        QuotaMonitorProviderSub2API,
+		Enabled:         true,
+		IntervalSeconds: 7200,
+		Currency:        "USD",
+		UpdateExisting:  true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(0), res.Updated)
+	require.Equal(t, int64(1), res.Failed)
+	require.Empty(t, repo.updated)
+	require.Len(t, res.Failures, 1)
+	require.Equal(t, int64(1), res.Failures[0].AccountID)
+}
+
+func TestAccountQuotaMonitorBatchUpdateExistingUsesPlainOverrideAndStoresEncrypted(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay1.example.com", "api_key": "key-1"}}}}
+	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{1: {ID: 7, AccountID: 1, Name: "old", Provider: QuotaMonitorProviderNewAPI, Enabled: true, IntervalSeconds: 3600, Currency: "USD", APIKeyOverride: "enc:key-1", APIKeyOverrideSet: true}}}
+	svc, fetcher := newQuotaBatchService(repo, accountRepo)
+
+	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
+		AccountIDs:      []int64{1},
+		Provider:        QuotaMonitorProviderSub2API,
+		APIKeyOverride:  "key-9",
+		Enabled:         true,
+		IntervalSeconds: 7200,
+		Currency:        "USD",
+		UpdateExisting:  true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.Updated)
+	require.Len(t, fetcher.calls, 1)
+	require.Equal(t, "key-9", fetcher.calls[0].APIKey)
+	require.Len(t, repo.updated, 1)
+	require.Equal(t, "enc:key-9", repo.updated[0].APIKeyOverride)
+	require.True(t, repo.updated[0].APIKeyOverrideSet)
+}
+
 func TestAccountQuotaMonitorBatchCreateDeduplicatesByEffectiveEndpoint(t *testing.T) {
 	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
-		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay.example.com/v1/"}},
-		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://RELAY.example.com/api/v1"}},
-		{ID: 3, Name: "a3", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://other.example.com"}},
+		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://relay.example.com/v1/", "api_key": "key-1"}},
+		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://RELAY.example.com/api/v1", "api_key": "key-2"}},
+		{ID: 3, Name: "a3", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://other.example.com", "api_key": "key-3"}},
 	}}
 	repo := &quotaBatchRepoStub{}
-	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+	svc, _ := newQuotaBatchService(repo, accountRepo)
 
 	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
 		Provider:        QuotaMonitorProviderSub2API,
@@ -306,13 +386,13 @@ func TestAccountQuotaMonitorBatchCreateDeduplicatesByEffectiveEndpoint(t *testin
 
 func TestAccountQuotaMonitorBatchCreateDedupPrefersExistingEndpointOwner(t *testing.T) {
 	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
-		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://same.example.com/v1"}},
-		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://same.example.com/api/v1/"}},
+		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://same.example.com/v1", "api_key": "key-1"}},
+		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://same.example.com/api/v1/", "api_key": "key-2"}},
 	}}
 	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{
 		2: {ID: 9, AccountID: 2, Name: "existing", Provider: QuotaMonitorProviderSub2API, Enabled: true, IntervalSeconds: 3600, Currency: "USD"},
 	}}
-	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+	svc, _ := newQuotaBatchService(repo, accountRepo)
 
 	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
 		Provider:        QuotaMonitorProviderSub2API,
@@ -328,6 +408,31 @@ func TestAccountQuotaMonitorBatchCreateDedupPrefersExistingEndpointOwner(t *test
 	require.Equal(t, int64(1), res.SkippedDuplicate)
 	require.Empty(t, repo.created)
 	require.Empty(t, repo.updated)
+}
+
+func TestAccountQuotaMonitorBatchCreateSkipsFetchFailures(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
+		{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://ok.example.com", "api_key": "key-1"}},
+		{ID: 2, Name: "a2", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://bad.example.com", "api_key": "key-2"}},
+	}}
+	repo := &quotaBatchRepoStub{}
+	svc, fetcher := newQuotaBatchService(repo, accountRepo)
+	fetcher.errByAccount = map[int64]error{2: fmt.Errorf("fetch failed")}
+
+	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
+		Provider:        QuotaMonitorProviderSub2API,
+		Enabled:         true,
+		IntervalSeconds: 3600,
+		Currency:        "USD",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.Created)
+	require.Equal(t, int64(1), res.Failed)
+	require.Len(t, repo.created, 1)
+	require.Equal(t, int64(1), repo.created[0].AccountID)
+	require.Len(t, res.Failures, 1)
+	require.Equal(t, int64(2), res.Failures[0].AccountID)
 }
 
 func TestNormalizeQuotaMonitorEndpointKey(t *testing.T) {

@@ -72,6 +72,9 @@ var (
 	ErrAccountQuotaMonitorKeyDecryptFailed = infraerrors.InternalServer(
 		"ACCOUNT_QUOTA_MONITOR_KEY_DECRYPT_FAILED", "quota monitor api key override decryption failed; please re-edit the monitor with a fresh key",
 	)
+	ErrAccountQuotaMonitorFetchFailed = infraerrors.BadRequest(
+		"ACCOUNT_QUOTA_MONITOR_FETCH_FAILED", "quota fetch failed; monitor was not saved",
+	)
 	ErrAccountQuotaMonitorBatchNoAccounts = infraerrors.BadRequest(
 		"ACCOUNT_QUOTA_MONITOR_BATCH_NO_ACCOUNTS", "no accounts matched quota monitor batch request",
 	)
