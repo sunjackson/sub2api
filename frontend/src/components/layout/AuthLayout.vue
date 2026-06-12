@@ -77,7 +77,11 @@ const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 const currentYear = computed(() => new Date().getFullYear())
 
 onMounted(() => {
-  appStore.fetchPublicSettings()
+  // Auth routes that need login agreement / OAuth / Turnstile settings load the
+  // full payload themselves. The layout must not duplicate that heavy request.
+  if (!appStore.publicSettingsLoaded) {
+    appStore.fetchPublicSettings()
+  }
 })
 </script>
 

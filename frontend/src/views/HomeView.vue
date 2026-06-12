@@ -473,9 +473,10 @@ onMounted(() => {
   // Check auth state
   authStore.checkAuth()
 
-  // Ensure public settings are loaded (will use cache if already loaded from injected config)
-  if (!appStore.publicSettingsLoaded) {
-    appStore.fetchPublicSettings()
+  // Home can use heavy fields (custom logo and home_content), so load the
+  // complete settings here instead of making every route pay this cost.
+  if (!appStore.publicSettingsLoaded || appStore.publicSettingsPartial) {
+    appStore.fetchCompletePublicSettings()
   }
 })
 </script>
