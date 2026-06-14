@@ -253,6 +253,11 @@ export interface OpsSystemMetricsSnapshot {
   memory_used_mb?: number | null
   memory_total_mb?: number | null
   memory_usage_percent?: number | null
+  memory_available_mb?: number | null
+  memory_cache_mb?: number | null
+  memory_free_mb?: number | null
+  memory_raw_used_mb?: number | null
+  memory_usage_basis?: string | null
 
   db_ok?: boolean | null
   redis_ok?: boolean | null

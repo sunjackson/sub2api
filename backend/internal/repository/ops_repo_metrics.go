@@ -65,6 +65,10 @@ INSERT INTO ops_system_metrics (
   memory_used_mb,
   memory_total_mb,
   memory_usage_percent,
+  memory_available_mb,
+  memory_cache_mb,
+  memory_free_mb,
+  memory_raw_used_mb,
 
   db_ok,
   redis_ok,
@@ -85,11 +89,11 @@ INSERT INTO ops_system_metrics (
   $12,$13,$14,$15,
   $16,$17,$18,$19,$20,$21,
   $22,$23,$24,$25,$26,$27,
-  $28,$29,$30,$31,
-  $32,$33,
-  $34,$35,
-  $36,$37,$38,
-  $39,$40
+  $28,$29,$30,$31,$32,$33,$34,$35,
+  $36,$37,
+  $38,$39,
+  $40,$41,$42,
+  $43,$44
 )`
 
 	_, err := r.db.ExecContext(
@@ -129,9 +133,13 @@ INSERT INTO ops_system_metrics (
 		opsNullInt(input.TTFTMaxMs),
 
 		opsNullFloat64(input.CPUUsagePercent),
-		opsNullInt(input.MemoryUsedMB),
-		opsNullInt(input.MemoryTotalMB),
+		opsNullIntAllowZero(input.MemoryUsedMB),
+		opsNullIntAllowZero(input.MemoryTotalMB),
 		opsNullFloat64(input.MemoryUsagePercent),
+		opsNullIntAllowZero(input.MemoryAvailableMB),
+		opsNullIntAllowZero(input.MemoryCacheMB),
+		opsNullIntAllowZero(input.MemoryFreeMB),
+		opsNullIntAllowZero(input.MemoryRawUsedMB),
 
 		opsNullBool(input.DBOK),
 		opsNullBool(input.RedisOK),
@@ -167,6 +175,10 @@ SELECT
   memory_used_mb,
   memory_total_mb,
   memory_usage_percent,
+  memory_available_mb,
+  memory_cache_mb,
+  memory_free_mb,
+  memory_raw_used_mb,
 
   db_ok,
   redis_ok,
@@ -193,6 +205,10 @@ LIMIT 1`
 	var memUsed sql.NullInt64
 	var memTotal sql.NullInt64
 	var memPct sql.NullFloat64
+	var memAvailable sql.NullInt64
+	var memCache sql.NullInt64
+	var memFree sql.NullInt64
+	var memRawUsed sql.NullInt64
 	var dbOK sql.NullBool
 	var redisOK sql.NullBool
 	var redisTotal sql.NullInt64
@@ -212,6 +228,10 @@ LIMIT 1`
 		&memUsed,
 		&memTotal,
 		&memPct,
+		&memAvailable,
+		&memCache,
+		&memFree,
+		&memRawUsed,
 		&dbOK,
 		&redisOK,
 		&redisTotal,
@@ -241,6 +261,27 @@ LIMIT 1`
 	if memPct.Valid {
 		v := memPct.Float64
 		out.MemoryUsagePercent = &v
+	}
+	if memAvailable.Valid {
+		v := memAvailable.Int64
+		out.MemoryAvailableMB = &v
+	}
+	if memCache.Valid {
+		v := memCache.Int64
+		out.MemoryCacheMB = &v
+	}
+	if memFree.Valid {
+		v := memFree.Int64
+		out.MemoryFreeMB = &v
+	}
+	if memRawUsed.Valid {
+		v := memRawUsed.Int64
+		out.MemoryRawUsedMB = &v
+	}
+	if memAvailable.Valid {
+		out.MemoryUsageBasis = "pressure"
+	} else if memRawUsed.Valid {
+		out.MemoryUsageBasis = "raw"
 	}
 	if dbOK.Valid {
 		v := dbOK.Bool
@@ -428,6 +469,13 @@ func opsNullBool(v *bool) any {
 		return sql.NullBool{}
 	}
 	return sql.NullBool{Bool: *v, Valid: true}
+}
+
+func opsNullIntAllowZero(v *int64) any {
+	if v == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *v, Valid: true}
 }
 
 func opsNullFloat64(v *float64) any {
