@@ -3469,13 +3469,14 @@ const quotaMonitorBaseUrl = computed(() => {
 })
 
 const detectedQuotaProvider = computed(() => detectQuotaMonitorProvider(quotaMonitorBaseUrl.value))
-const quotaMonitorSupported = computed(() => detectedQuotaProvider.value === 'sub2api' || detectedQuotaProvider.value === 'newapi')
+const quotaMonitorSupported = computed(() => detectedQuotaProvider.value !== '')
 const quotaMonitorProviderForCreate = computed<AutoQuotaMonitorProvider | ''>(() =>
   quotaMonitorSupported.value ? detectedQuotaProvider.value as AutoQuotaMonitorProvider : ''
 )
 const quotaMonitorProviderLabel = computed(() => {
   if (detectedQuotaProvider.value === 'sub2api') return 'sub2api'
   if (detectedQuotaProvider.value === 'newapi') return 'NewAPI'
+  if (detectedQuotaProvider.value === 'custom') return t('admin.accounts.quotaMonitor.providerOther')
   return t('admin.accounts.quotaMonitor.providerOther')
 })
 

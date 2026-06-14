@@ -164,6 +164,43 @@ export interface TrendResponse {
   items: TrendPoint[]
 }
 
+export interface CandidateAccount {
+  id: number
+  name: string
+  platform: string
+  type: string
+  status: string
+}
+
+export interface CandidateGroup {
+  endpoint: string
+  endpoint_key: string
+  provider: AccountQuotaProvider
+  provider_detected: boolean
+  account_count: number
+  monitor_count: number
+  covered: boolean
+  missing_account_count: number
+  duplicate_monitor_count: number
+  representative_account_id: number
+  sample_accounts: CandidateAccount[]
+  existing_monitor_ids: number[]
+  status_counts: Record<string, number>
+}
+
+export interface CandidateOverviewResponse {
+  total_accounts: number
+  accounts_with_endpoint: number
+  accounts_without_endpoint: number
+  endpoint_groups: number
+  covered_groups: number
+  missing_groups: number
+  detected_provider_groups: number
+  custom_provider_groups: number
+  duplicate_monitor_groups: number
+  groups: CandidateGroup[]
+}
+
 export async function list(
   params: ListParams = {},
   options?: { signal?: AbortSignal }
@@ -223,6 +260,11 @@ export async function trend(days = 7, bucket: 'hour' | 'day' = 'hour'): Promise<
   return data
 }
 
+export async function candidates(): Promise<CandidateOverviewResponse> {
+  const { data } = await apiClient.get<CandidateOverviewResponse>('/admin/quota-monitors/candidates')
+  return data
+}
+
 export const accountQuotaMonitorAPI = {
   list,
   get,
@@ -234,6 +276,7 @@ export const accountQuotaMonitorAPI = {
   listHistory,
   summary,
   trend,
+  candidates,
 }
 
 export default accountQuotaMonitorAPI

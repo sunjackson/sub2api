@@ -6,10 +6,12 @@ describe('detectQuotaMonitorProvider', () => {
     expect(detectQuotaMonitorProvider('https://relay.sub2api.example.com/v1')).toBe('sub2api')
     expect(detectQuotaMonitorProvider('newapi.example.com')).toBe('newapi')
     expect(detectQuotaMonitorProvider('https://example.com/sub2api')).toBe('sub2api')
+    expect(detectQuotaMonitorProvider('https://ai.jgy.ai/v1')).toBe('sub2api')
+    expect(detectQuotaMonitorProvider('https://relay.example.com/api/user/self')).toBe('newapi')
   })
 
-  it('marks unknown urls as other and empty input as blank', () => {
-    expect(detectQuotaMonitorProvider('https://api.openai.com')).toBe('other')
+  it('marks unknown urls as custom auto-probe and empty input as blank', () => {
+    expect(detectQuotaMonitorProvider('https://api.openai.com')).toBe('custom')
     expect(detectQuotaMonitorProvider('')).toBe('')
   })
 

@@ -444,14 +444,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/channels/quota-monitor',
     name: 'AdminAccountQuotaMonitor',
-    component: () => import('@/views/admin/ChannelsView.vue'),
+    component: () => import('@/views/admin/AccountQuotaMonitorView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Account Quota Monitor',
       titleKey: 'admin.accountQuotaMonitor.title',
-      descriptionKey: 'admin.accountQuotaMonitor.description',
-      openAccountQuotaMonitor: true
+      descriptionKey: 'admin.accountQuotaMonitor.description'
     }
   },
   {

@@ -72,7 +72,11 @@ func (r *quotaBatchRepoStub) Update(_ context.Context, m *AccountQuotaMonitor) e
 }
 func (r *quotaBatchRepoStub) Delete(context.Context, int64) error { return nil }
 func (r *quotaBatchRepoStub) List(context.Context, AccountQuotaMonitorListParams) ([]*AccountQuotaMonitor, int64, error) {
-	return nil, 0, nil
+	out := make([]*AccountQuotaMonitor, 0, len(r.existing))
+	for _, item := range r.existing {
+		out = append(out, item)
+	}
+	return out, int64(len(out)), nil
 }
 func (r *quotaBatchRepoStub) ListEnabled(context.Context) ([]*AccountQuotaMonitor, error) {
 	return nil, nil
@@ -260,6 +264,35 @@ func TestAccountQuotaMonitorBatchCreateCreatesAllMatchedAccounts(t *testing.T) {
 	require.Equal(t, StatusActive, accountRepo.filters.Status)
 	require.Equal(t, "a", accountRepo.filters.Search)
 	require.Equal(t, "USD", repo.created[0].Currency)
+}
+
+func TestAccountQuotaMonitorCandidateOverviewGroupsByEndpointAndCoverage(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{
+		{ID: 1, Name: "pool-a", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Credentials: map[string]any{"base_url": "https://ai.jgy.ai/v1", "api_key": "key-1"}},
+		{ID: 2, Name: "pool-b", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Credentials: map[string]any{"base_url": "https://ai.jgy.ai/api/v1/", "api_key": "key-2"}},
+		{ID: 3, Name: "relay-c", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Credentials: map[string]any{"base_url": "https://relay.example.com", "api_key": "key-3"}},
+		{ID: 4, Name: "no-url", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Credentials: map[string]any{"api_key": "key-4"}},
+	}}
+	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{
+		1: {ID: 9, AccountID: 1, Name: "existing", Provider: QuotaMonitorProviderSub2API, Endpoint: "https://ai.jgy.ai", Enabled: true, IntervalSeconds: 3600, Currency: "USD"},
+	}}
+	svc, _ := newQuotaBatchService(repo, accountRepo)
+
+	got, err := svc.CandidateOverview(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(4), got.TotalAccounts)
+	require.Equal(t, int64(3), got.AccountsWithEndpoint)
+	require.Equal(t, int64(1), got.AccountsWithoutEndpoint)
+	require.Equal(t, int64(2), got.EndpointGroups)
+	require.Equal(t, int64(1), got.CoveredGroups)
+	require.Equal(t, int64(1), got.MissingGroups)
+	require.Equal(t, QuotaMonitorProviderSub2API, got.Groups[1].Provider)
+	require.True(t, got.Groups[1].Covered)
+	require.Equal(t, int64(2), got.Groups[1].AccountCount)
+	require.Equal(t, int64(0), got.Groups[1].MissingAccountCount)
+	require.Equal(t, int64(3), got.Groups[0].RepresentativeAccountID)
+	require.Equal(t, QuotaMonitorProviderCustom, got.Groups[0].Provider)
+	require.False(t, got.Groups[0].ProviderDetected)
 }
 
 func TestAccountQuotaMonitorBatchCreateSkipsExistingByDefault(t *testing.T) {

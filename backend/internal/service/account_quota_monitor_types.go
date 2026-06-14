@@ -247,3 +247,40 @@ type AccountQuotaTrendPoint struct {
 	Balance  float64   `json:"balance"`
 	Count    int64     `json:"count"`
 }
+
+type AccountQuotaMonitorCandidateAccount struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	Type     string `json:"type"`
+	Status   string `json:"status"`
+}
+
+type AccountQuotaMonitorCandidateGroup struct {
+	Endpoint                string                                `json:"endpoint"`
+	EndpointKey             string                                `json:"endpoint_key"`
+	Provider                string                                `json:"provider"`
+	ProviderDetected        bool                                  `json:"provider_detected"`
+	AccountCount            int64                                 `json:"account_count"`
+	MonitorCount            int64                                 `json:"monitor_count"`
+	Covered                 bool                                  `json:"covered"`
+	MissingAccountCount     int64                                 `json:"missing_account_count"`
+	DuplicateMonitorCount   int64                                 `json:"duplicate_monitor_count"`
+	RepresentativeAccountID int64                                 `json:"representative_account_id"`
+	SampleAccounts          []AccountQuotaMonitorCandidateAccount `json:"sample_accounts"`
+	ExistingMonitorIDs      []int64                               `json:"existing_monitor_ids"`
+	StatusCounts            map[string]int64                      `json:"status_counts"`
+}
+
+type AccountQuotaMonitorCandidateOverview struct {
+	TotalAccounts           int64                               `json:"total_accounts"`
+	AccountsWithEndpoint    int64                               `json:"accounts_with_endpoint"`
+	AccountsWithoutEndpoint int64                               `json:"accounts_without_endpoint"`
+	EndpointGroups          int64                               `json:"endpoint_groups"`
+	CoveredGroups           int64                               `json:"covered_groups"`
+	MissingGroups           int64                               `json:"missing_groups"`
+	DetectedProviderGroups  int64                               `json:"detected_provider_groups"`
+	CustomProviderGroups    int64                               `json:"custom_provider_groups"`
+	DuplicateMonitorGroups  int64                               `json:"duplicate_monitor_groups"`
+	Groups                  []AccountQuotaMonitorCandidateGroup `json:"groups"`
+}

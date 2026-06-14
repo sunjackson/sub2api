@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -287,6 +288,143 @@ func (s *AccountQuotaMonitorService) Trend(ctx context.Context, days int, bucket
 		days = 7
 	}
 	return s.repo.Trend(ctx, time.Now().UTC().AddDate(0, 0, -days), bucket)
+}
+
+func (s *AccountQuotaMonitorService) CandidateOverview(ctx context.Context) (*AccountQuotaMonitorCandidateOverview, error) {
+	accounts, err := s.resolveBatchAccounts(ctx, AccountQuotaMonitorBatchCreateParams{
+		Filters:     AccountQuotaMonitorAccountFilters{Status: StatusActive},
+		MaxAccounts: quotaMonitorBatchDefaultMaxAccounts,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	accountByID := make(map[int64]*Account, len(accounts))
+	groupsByEndpoint := make(map[string]*AccountQuotaMonitorCandidateGroup)
+	overview := &AccountQuotaMonitorCandidateOverview{TotalAccounts: int64(len(accounts))}
+
+	for i := range accounts {
+		account := &accounts[i]
+		if account.ID <= 0 {
+			continue
+		}
+		accountByID[account.ID] = account
+		endpoint := effectiveQuotaMonitorEndpointForAccount(account, "")
+		endpointKey := normalizeQuotaMonitorEndpointKey(endpoint)
+		if endpointKey == "" {
+			overview.AccountsWithoutEndpoint++
+			continue
+		}
+		overview.AccountsWithEndpoint++
+		group := groupsByEndpoint[endpointKey]
+		if group == nil {
+			provider, detected := detectQuotaMonitorProviderFromEndpoint(endpoint)
+			group = &AccountQuotaMonitorCandidateGroup{
+				Endpoint:         endpoint,
+				EndpointKey:      endpointKey,
+				Provider:         provider,
+				ProviderDetected: detected,
+				StatusCounts:     map[string]int64{},
+			}
+			groupsByEndpoint[endpointKey] = group
+		}
+		group.AccountCount++
+		group.StatusCounts[account.Status]++
+		if group.RepresentativeAccountID == 0 {
+			group.RepresentativeAccountID = account.ID
+		}
+		if len(group.SampleAccounts) < 5 {
+			group.SampleAccounts = append(group.SampleAccounts, AccountQuotaMonitorCandidateAccount{
+				ID:       account.ID,
+				Name:     account.Name,
+				Platform: account.Platform,
+				Type:     account.Type,
+				Status:   account.Status,
+			})
+		}
+	}
+
+	monitors, _, err := s.repo.List(ctx, AccountQuotaMonitorListParams{Page: 1, PageSize: quotaMonitorBatchDefaultMaxAccounts})
+	if err != nil {
+		return nil, err
+	}
+	for _, monitor := range monitors {
+		if monitor == nil {
+			continue
+		}
+		account := accountByID[monitor.AccountID]
+		endpoint := strings.TrimSpace(monitor.Endpoint)
+		if endpoint == "" && account != nil {
+			endpoint = effectiveQuotaMonitorEndpointForAccount(account, "")
+		}
+		endpointKey := normalizeQuotaMonitorEndpointKey(endpoint)
+		if endpointKey == "" {
+			continue
+		}
+		group := groupsByEndpoint[endpointKey]
+		if group == nil {
+			provider := normalizeQuotaMonitorProvider(monitor.Provider)
+			detected := provider == QuotaMonitorProviderSub2API || provider == QuotaMonitorProviderNewAPI
+			if provider == "" {
+				provider, detected = detectQuotaMonitorProviderFromEndpoint(endpoint)
+			}
+			group = &AccountQuotaMonitorCandidateGroup{
+				Endpoint:         endpoint,
+				EndpointKey:      endpointKey,
+				Provider:         provider,
+				ProviderDetected: detected,
+				StatusCounts:     map[string]int64{},
+			}
+			groupsByEndpoint[endpointKey] = group
+		}
+		group.MonitorCount++
+		group.ExistingMonitorIDs = append(group.ExistingMonitorIDs, monitor.ID)
+		if group.Provider == "" || group.Provider == QuotaMonitorProviderCustom {
+			if normalized := normalizeQuotaMonitorProvider(monitor.Provider); normalized != "" {
+				group.Provider = normalized
+				group.ProviderDetected = normalized == QuotaMonitorProviderSub2API || normalized == QuotaMonitorProviderNewAPI
+			}
+		}
+	}
+
+	overview.Groups = make([]AccountQuotaMonitorCandidateGroup, 0, len(groupsByEndpoint))
+	for _, group := range groupsByEndpoint {
+		group.Covered = group.MonitorCount > 0
+		if !group.Covered {
+			group.MissingAccountCount = group.AccountCount
+		}
+		if group.MonitorCount > 1 {
+			group.DuplicateMonitorCount = group.MonitorCount - 1
+			overview.DuplicateMonitorGroups++
+		}
+		if group.Provider == "" {
+			group.Provider = QuotaMonitorProviderCustom
+		}
+		overview.EndpointGroups++
+		if group.Covered {
+			overview.CoveredGroups++
+		} else {
+			overview.MissingGroups++
+		}
+		if group.ProviderDetected {
+			overview.DetectedProviderGroups++
+		} else {
+			overview.CustomProviderGroups++
+		}
+		overview.Groups = append(overview.Groups, *group)
+	}
+
+	sort.SliceStable(overview.Groups, func(i, j int) bool {
+		a, b := overview.Groups[i], overview.Groups[j]
+		if a.Covered != b.Covered {
+			return !a.Covered
+		}
+		if a.AccountCount != b.AccountCount {
+			return a.AccountCount > b.AccountCount
+		}
+		return a.EndpointKey < b.EndpointKey
+	})
+	return overview, nil
 }
 
 func (s *AccountQuotaMonitorService) validateBatchCreate(ctx context.Context, p AccountQuotaMonitorBatchCreateParams) error {

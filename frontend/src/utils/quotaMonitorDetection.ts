@@ -3,12 +3,14 @@
  * Unknown relay domains intentionally stay unsupported for automatic monitor creation.
  */
 
-export type AutoQuotaMonitorProvider = 'sub2api' | 'newapi'
-export type QuotaMonitorDetection = AutoQuotaMonitorProvider | 'other' | ''
+export type AutoQuotaMonitorProvider = 'sub2api' | 'newapi' | 'custom'
+export type QuotaMonitorDetection = AutoQuotaMonitorProvider | ''
 
 const providerPatterns: Array<[AutoQuotaMonitorProvider, RegExp]> = [
   ['newapi', /(^|[.\-_/])new[-_]?api([.\-_/]|$)/i],
   ['sub2api', /(^|[.\-_/])sub2[-_]?api([.\-_/]|$)/i],
+  ['sub2api', /(^|[.\-_/])givemetoken([.\-_/]|$)/i],
+  ['sub2api', /(^|[.\-_/])jgy\.ai([.\-_/]|$)/i],
 ]
 
 export function detectQuotaMonitorProvider(rawBaseURL: string): QuotaMonitorDetection {
@@ -27,7 +29,11 @@ export function detectQuotaMonitorProvider(rawBaseURL: string): QuotaMonitorDete
   for (const [provider, pattern] of providerPatterns) {
     if (pattern.test(haystack)) return provider
   }
-  return 'other'
+
+  const path = haystack.replace(/^[^/]+/, '')
+  if (/\/api\/(user\/self|user\/dashboard|token\/self|user\/token|usage\/token)\/?$/i.test(path)) return 'newapi'
+  if (/\/api\/v1\/(user|user\/profile|user\/self)\/?$/i.test(path)) return 'sub2api'
+  return 'custom'
 }
 
 export function normalizeQuotaMonitorEndpointKey(rawEndpoint: string): string {

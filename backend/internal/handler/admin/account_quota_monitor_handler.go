@@ -355,6 +355,15 @@ func (h *AccountQuotaMonitorHandler) Trend(c *gin.Context) {
 	response.Success(c, gin.H{"items": out})
 }
 
+func (h *AccountQuotaMonitorHandler) Candidates(c *gin.Context) {
+	overview, err := h.quotaService.CandidateOverview(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, overview)
+}
+
 func quotaMonitorBatchFiltersFromRequest(req *accountQuotaMonitorBatchAccountFiltersRequest) (service.AccountQuotaMonitorAccountFilters, error) {
 	if req == nil {
 		return service.AccountQuotaMonitorAccountFilters{}, nil
