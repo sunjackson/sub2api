@@ -33,6 +33,8 @@ func detectQuotaMonitorProviderFromEndpoint(raw string) (provider string, detect
 		return QuotaMonitorProviderNewAPI, true
 	case strings.Contains(haystack, "sub2api"), strings.Contains(haystack, "sub2-api"), strings.Contains(haystack, "sub2_api"):
 		return QuotaMonitorProviderSub2API, true
+	case strings.HasPrefix(haystack, "sub2."), strings.HasPrefix(haystack, "sub."):
+		return QuotaMonitorProviderSub2API, true
 	case strings.Contains(haystack, "givemetoken"), strings.Contains(haystack, "jgy.ai"):
 		return QuotaMonitorProviderSub2API, true
 	}

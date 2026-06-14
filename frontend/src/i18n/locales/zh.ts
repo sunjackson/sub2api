@@ -2891,6 +2891,7 @@ export default {
         createSkipped: '未创建，可能已存在或接口不可用',
         createError: '探测创建失败',
         createAllResult: '已创建 {created} 个监控，失败/跳过 {failed} 个',
+        lastImportFailed: '上次导入失败',
         statusDuplicate: '已覆盖，有重复',
         statusCovered: '已覆盖',
         statusMissing: '待补齐',

@@ -123,6 +123,9 @@
                 <p v-if="group.duplicate_monitor_count > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
                   {{ t('admin.accountQuotaMonitor.overview.duplicateHint', { count: group.duplicate_monitor_count }, `多余 ${group.duplicate_monitor_count} 个`) }}
                 </p>
+                <p v-if="candidateImportFailures[group.endpoint_key]" class="mt-1 text-xs text-red-600 dark:text-red-400" :title="candidateImportFailures[group.endpoint_key]">
+                  {{ t('admin.accountQuotaMonitor.overview.lastImportFailed', '上次导入失败') }}：{{ candidateImportFailures[group.endpoint_key] }}
+                </p>
               </div>
               <div class="flex justify-start lg:justify-end">
                 <button
@@ -518,6 +521,7 @@ const selectedHistoryMonitor = ref<AccountQuotaMonitor | null>(null)
 const creatingCandidateKey = ref<string | null>(null)
 const creatingAllCandidates = ref(false)
 const pendingDeleteId = ref<number | null>(null)
+const candidateImportFailures = reactive<Record<string, string>>({})
 
 const filters = reactive({ search: '', provider: '' as '' | AccountQuotaProvider, enabled: '' as '' | 'true' | 'false' })
 const pagination = reactive({ page: 1, page_size: 20, total: 0 })
@@ -850,14 +854,18 @@ async function createCandidateMonitor(group: CandidateGroup) {
       max_accounts: 1,
     })
     if (result.created > 0 || result.updated > 0) {
+      delete candidateImportFailures[group.endpoint_key]
       appStore.showSuccess(t('admin.accountQuotaMonitor.overview.createSuccess', '已通过真实余额接口验证并创建监控'))
     } else {
       const reason = result.failures?.[0]?.reason || t('admin.accountQuotaMonitor.overview.createSkipped', '未创建，可能已存在或接口不可用')
+      candidateImportFailures[group.endpoint_key] = reason
       appStore.showWarning(reason)
     }
     await reload()
   } catch (err) {
-    appStore.showError(extractApiErrorMessage(err, t('admin.accountQuotaMonitor.overview.createError', '探测创建失败')))
+    const reason = extractApiErrorMessage(err, t('admin.accountQuotaMonitor.overview.createError', '探测创建失败'))
+    candidateImportFailures[group.endpoint_key] = reason
+    appStore.showError(reason)
   } finally {
     creatingCandidateKey.value = null
   }
@@ -869,6 +877,7 @@ async function createAllCandidateMonitors() {
   creatingAllCandidates.value = true
   let created = 0
   let failed = 0
+  const reasons: string[] = []
   try {
     for (const group of targets) {
       creatingCandidateKey.value = group.endpoint_key
@@ -885,8 +894,23 @@ async function createAllCandidateMonitors() {
         })
         created += result.created + result.updated
         failed += result.failed
-        if (result.created === 0 && result.updated === 0 && result.failed === 0) failed += 1
-      } catch {
+        if (result.created > 0 || result.updated > 0) {
+          delete candidateImportFailures[group.endpoint_key]
+        }
+        if (result.failures?.length) {
+          const reason = result.failures[0].reason || t('admin.accountQuotaMonitor.overview.createError', '探测创建失败')
+          candidateImportFailures[group.endpoint_key] = reason
+          reasons.push(reason)
+        } else if (result.created === 0 && result.updated === 0 && result.failed === 0) {
+          const reason = t('admin.accountQuotaMonitor.overview.createSkipped', '未创建，可能已存在或接口不可用')
+          candidateImportFailures[group.endpoint_key] = reason
+          reasons.push(reason)
+          failed += 1
+        }
+      } catch (err) {
+        const reason = extractApiErrorMessage(err, t('admin.accountQuotaMonitor.overview.createError', '探测创建失败'))
+        candidateImportFailures[group.endpoint_key] = reason
+        reasons.push(reason)
         failed += 1
       }
     }
@@ -895,7 +919,7 @@ async function createAllCandidateMonitors() {
       { created, failed },
       `已创建 ${created} 个监控，失败/跳过 ${failed} 个`
     )
-    if (failed > 0) appStore.showWarning(message)
+    if (failed > 0) appStore.showWarning(reasons[0] ? `${message}：${reasons[0]}` : message)
     else appStore.showSuccess(message)
     await reload()
   } finally {

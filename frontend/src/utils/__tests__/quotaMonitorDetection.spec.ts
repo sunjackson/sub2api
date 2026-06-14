@@ -7,6 +7,8 @@ describe('detectQuotaMonitorProvider', () => {
     expect(detectQuotaMonitorProvider('newapi.example.com')).toBe('newapi')
     expect(detectQuotaMonitorProvider('https://example.com/sub2api')).toBe('sub2api')
     expect(detectQuotaMonitorProvider('https://ai.jgy.ai/v1')).toBe('sub2api')
+    expect(detectQuotaMonitorProvider('https://sub2.example.com/v1')).toBe('sub2api')
+    expect(detectQuotaMonitorProvider('https://sub.example.com/v1')).toBe('sub2api')
     expect(detectQuotaMonitorProvider('https://relay.example.com/api/user/self')).toBe('newapi')
   })
 

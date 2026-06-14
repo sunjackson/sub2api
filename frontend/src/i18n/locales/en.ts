@@ -2814,6 +2814,7 @@ export default {
         createSkipped: 'Not created. It may already exist or the endpoint is unavailable.',
         createError: 'Probe create failed',
         createAllResult: 'Created {created} monitors, failed/skipped {failed}',
+        lastImportFailed: 'Last import failed',
         statusDuplicate: 'Covered, duplicate',
         statusCovered: 'Covered',
         statusMissing: 'Missing',

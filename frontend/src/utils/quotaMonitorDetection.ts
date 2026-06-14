@@ -9,6 +9,8 @@ export type QuotaMonitorDetection = AutoQuotaMonitorProvider | ''
 const providerPatterns: Array<[AutoQuotaMonitorProvider, RegExp]> = [
   ['newapi', /(^|[.\-_/])new[-_]?api([.\-_/]|$)/i],
   ['sub2api', /(^|[.\-_/])sub2[-_]?api([.\-_/]|$)/i],
+  ['sub2api', /^sub2[.\-_/]/i],
+  ['sub2api', /^sub[.\-_/]/i],
   ['sub2api', /(^|[.\-_/])givemetoken([.\-_/]|$)/i],
   ['sub2api', /(^|[.\-_/])jgy\.ai([.\-_/]|$)/i],
 ]
