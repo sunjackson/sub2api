@@ -277,3 +277,25 @@ func TestAccountQuotaMonitorBatchCreateCanUpdateExisting(t *testing.T) {
 	require.NotNil(t, updated.LowBalanceThreshold)
 	require.Equal(t, threshold, *updated.LowBalanceThreshold)
 }
+
+func TestAccountQuotaMonitorBatchCreateReactivatesDisabledExistingByDefault(t *testing.T) {
+	accountRepo := &quotaBatchAccountRepoStub{accounts: []Account{{ID: 1, Name: "a1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}}}
+	repo := &quotaBatchRepoStub{existing: map[int64]*AccountQuotaMonitor{1: {ID: 7, AccountID: 1, Name: "old", Provider: QuotaMonitorProviderCustom, Enabled: false, IntervalSeconds: 3600, Currency: "USD"}}}
+	svc := NewAccountQuotaMonitorService(repo, accountRepo, quotaBatchEncryptorStub{})
+
+	res, err := svc.BatchCreate(context.Background(), AccountQuotaMonitorBatchCreateParams{
+		AccountIDs:      []int64{1},
+		Provider:        QuotaMonitorProviderSub2API,
+		Enabled:         true,
+		IntervalSeconds: 600,
+		Currency:        "USD",
+		UpdateExisting:  false,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.Updated)
+	require.Zero(t, res.SkippedExisting)
+	require.Len(t, repo.updated, 1)
+	require.True(t, repo.updated[0].Enabled)
+	require.Equal(t, QuotaMonitorProviderSub2API, repo.updated[0].Provider)
+	require.Equal(t, 600, repo.updated[0].IntervalSeconds)
+}

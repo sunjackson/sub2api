@@ -50,10 +50,14 @@ func (f *accountQuotaFetcher) Fetch(ctx context.Context, in accountQuotaFetchInp
 	}
 
 	candidates := quotaCandidateURLs(endpoint, in.Provider)
+	var firstErr error
 	var lastErr error
 	for _, candidate := range candidates {
 		payload, err := f.fetchOne(ctx, candidate, in.APIKey)
 		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
 			lastErr = err
 			continue
 		}
@@ -71,6 +75,9 @@ func (f *accountQuotaFetcher) Fetch(ctx context.Context, in accountQuotaFetchInp
 			Message:    "",
 			CheckedAt:  time.Now().UTC(),
 		}, nil
+	}
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no candidate quota endpoint parsed successfully")
@@ -198,6 +205,9 @@ func parseQuotaPayload(body []byte) (*parsedQuotaPayload, error) {
 	if err := dec.Decode(&decoded); err != nil {
 		return nil, fmt.Errorf("parse quota response JSON: %w", err)
 	}
+	if msg := explicitQuotaPayloadError(decoded); msg != "" {
+		return nil, fmt.Errorf("quota endpoint returned error: %s", truncateMessage(sanitizeErrorMessage(msg)))
+	}
 	parsed := scanQuotaValue(decoded)
 	if parsed == nil || (parsed.Balance == nil && parsed.QuotaTotal == nil && parsed.QuotaUsed == nil) {
 		return nil, fmt.Errorf("quota response did not contain a recognizable balance or quota field")
@@ -245,6 +255,59 @@ func parseQuotaMap(m map[string]any) *parsedQuotaPayload {
 	)
 	p.Currency = firstStringFromMap(m, "currency", "currency_code", "unit")
 	return p
+}
+
+func explicitQuotaPayloadError(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	if success, ok := boolFromAny(m["success"]); ok && !success {
+		return firstNonEmptyQuotaString(
+			firstStringFromMap(m, "message", "msg", "detail", "error_description"),
+			errorMessageFromValue(m["error"]),
+			"success=false",
+		)
+	}
+	if okValue, ok := boolFromAny(m["ok"]); ok && !okValue {
+		return firstNonEmptyQuotaString(
+			firstStringFromMap(m, "message", "msg", "detail", "error_description"),
+			errorMessageFromValue(m["error"]),
+			"ok=false",
+		)
+	}
+	return errorMessageFromValue(m["error"])
+}
+
+func errorMessageFromValue(v any) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(val)
+	case map[string]any:
+		return firstNonEmptyQuotaString(
+			firstStringFromMap(val, "message", "msg", "detail", "error_description", "code"),
+			errorMessageFromValue(val["error"]),
+		)
+	default:
+		return ""
+	}
+}
+
+func boolFromAny(v any) (bool, bool) {
+	switch val := v.(type) {
+	case bool:
+		return val, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(val)) {
+		case "true", "1", "yes", "ok", "success":
+			return true, true
+		case "false", "0", "no", "failed", "error":
+			return false, true
+		}
+	}
+	return false, false
 }
 
 func firstNumberFromMap(m map[string]any, keys ...string) *float64 {

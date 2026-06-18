@@ -22,12 +22,20 @@ type BuildInfo struct {
 	BuildType string
 }
 
+func envFlagEnabled(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	return strings.EqualFold(raw, "true") || raw == "1" || strings.EqualFold(raw, "yes") || strings.EqualFold(raw, "on")
+}
+
 func backgroundWorkersDisabled(cfg *config.Config) bool {
 	if cfg != nil && cfg.Dev.DisableBackgroundWorkers {
 		return true
 	}
-	raw := strings.TrimSpace(os.Getenv("SUB2API_DISABLE_BACKGROUND_WORKERS"))
-	return strings.EqualFold(raw, "true") || raw == "1" || strings.EqualFold(raw, "yes")
+	return envFlagEnabled(os.Getenv("SUB2API_DISABLE_BACKGROUND_WORKERS"))
+}
+
+func accountQuotaMonitorWorkerEnabledOverride() bool {
+	return envFlagEnabled(os.Getenv("SUB2API_ENABLE_ACCOUNT_QUOTA_MONITOR_WORKER"))
 }
 
 // ProvidePricingService creates and initializes PricingService
@@ -695,9 +703,12 @@ func ProvideAccountQuotaMonitorService(
 // ProvideAccountQuotaMonitorRunner 创建并启动账号额度监控调度器。
 func ProvideAccountQuotaMonitorRunner(svc *AccountQuotaMonitorService) *AccountQuotaMonitorRunner {
 	r := NewAccountQuotaMonitorRunner(svc)
-	if backgroundWorkersDisabled(nil) {
+	if backgroundWorkersDisabled(nil) && !accountQuotaMonitorWorkerEnabledOverride() {
 		logger.LegacyPrintf("service.account_quota_monitor_runner", "[AccountQuotaMonitorRunner] background worker disabled by dev config")
 		return r
+	}
+	if backgroundWorkersDisabled(nil) {
+		logger.LegacyPrintf("service.account_quota_monitor_runner", "[AccountQuotaMonitorRunner] enabled by SUB2API_ENABLE_ACCOUNT_QUOTA_MONITOR_WORKER override")
 	}
 	svc.SetScheduler(r)
 	r.Start()

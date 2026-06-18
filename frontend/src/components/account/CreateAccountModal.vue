@@ -2752,6 +2752,47 @@
         </div>
       </div>
 
+      <div v-if="canShowQuotaMonitorOnCreate" class="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.quotaMonitorOnCreate.title', '同时纳入额度监控') }}</label>
+            <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+              {{ t('admin.accounts.quotaMonitorOnCreate.hint', '保存账号后自动创建一条额度监控，使用该账号的 Base URL 与密钥查询余额。') }}
+            </p>
+          </div>
+          <label class="inline-flex cursor-pointer items-center gap-2">
+            <input
+              v-model="createQuotaMonitorEnabled"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('common.enabled', '启用') }}</span>
+          </label>
+        </div>
+        <div v-if="createQuotaMonitorEnabled" class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div>
+            <label class="input-label text-xs">{{ t('admin.accountQuotaMonitor.form.provider', '中转平台') }}</label>
+            <select v-model="createQuotaMonitorProvider" class="input">
+              <option value="sub2api">sub2api</option>
+              <option value="newapi">NewAPI</option>
+              <option value="custom">{{ t('admin.accountQuotaMonitor.provider.custom', '自定义') }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('admin.accountQuotaMonitor.form.interval', '查询间隔（秒）') }}</label>
+            <input v-model.number="createQuotaMonitorIntervalSeconds" type="number" min="60" max="86400" class="input" />
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('admin.accountQuotaMonitor.form.threshold', '低余额阈值') }}</label>
+            <input v-model="createQuotaMonitorLowBalanceThreshold" type="number" min="0" step="0.01" class="input" :placeholder="t('common.optional', '可选')" />
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('admin.accountQuotaMonitor.form.currency', '币种/单位') }}</label>
+            <input v-model="createQuotaMonitorCurrency" type="text" class="input" placeholder="USD" />
+          </div>
+        </div>
+      </div>
+
       <div>
         <div class="flex items-center justify-between">
           <div>
@@ -3220,6 +3261,7 @@ import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import type {
   Proxy,
   AdminGroup,
+  Account,
   AccountPlatform,
   AccountType,
   CheckMixedChannelResponse,
@@ -3413,6 +3455,12 @@ const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
+type CreateQuotaMonitorProvider = 'sub2api' | 'newapi' | 'custom'
+const createQuotaMonitorEnabled = ref(false)
+const createQuotaMonitorProvider = ref<CreateQuotaMonitorProvider>('sub2api')
+const createQuotaMonitorIntervalSeconds = ref(3600)
+const createQuotaMonitorLowBalanceThreshold = ref<number | null | ''>(null)
+const createQuotaMonitorCurrency = ref('USD')
 const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
@@ -3696,6 +3744,13 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const canShowQuotaMonitorOnCreate = computed(() => {
+  if (form.platform === 'antigravity') {
+    return antigravityAccountType.value === 'upstream'
+  }
+  return accountCategory.value === 'apikey'
+})
+
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -3732,6 +3787,12 @@ const canExchangeCode = computed(() => {
     return authCode.trim() && antigravityOAuth.sessionId.value && !antigravityOAuth.loading.value
   }
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
+})
+
+watch(canShowQuotaMonitorOnCreate, (visible) => {
+  if (!visible) {
+    createQuotaMonitorEnabled.value = false
+  }
 })
 
 // Watchers
@@ -4170,10 +4231,70 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 }
 
+function normalizedCreateQuotaMonitorThreshold(): number | null {
+  if (
+    createQuotaMonitorLowBalanceThreshold.value === null ||
+    createQuotaMonitorLowBalanceThreshold.value === '' ||
+    createQuotaMonitorLowBalanceThreshold.value === undefined
+  ) {
+    return null
+  }
+  const value = Number(createQuotaMonitorLowBalanceThreshold.value)
+  return Number.isFinite(value) && value >= 0 ? value : null
+}
+
+function hasQuotaMonitorSource(payload: CreateAccountRequest): boolean {
+  const credentials = payload.credentials || {}
+  const extra = payload.extra || {}
+  const endpoint = [
+    credentials.base_url,
+    credentials.endpoint,
+    extra.custom_base_url_enabled ? extra.custom_base_url : undefined,
+  ].some((value) => typeof value === 'string' && value.trim().length > 0)
+  const key = [
+    credentials.api_key,
+    credentials.access_token,
+    credentials.session_key,
+    credentials.token,
+  ].some((value) => typeof value === 'string' && value.trim().length > 0)
+  return endpoint && key
+}
+
+async function maybeCreateQuotaMonitorForAccount(account: Account, payload: CreateAccountRequest) {
+  if (!createQuotaMonitorEnabled.value) return
+  if (!hasQuotaMonitorSource(payload)) {
+    appStore.showError(t('admin.accounts.quotaMonitorOnCreate.missingConfig', '账号已创建，但额度监控缺少 Base URL 或密钥，未自动创建监控'))
+    return
+  }
+  try {
+    await adminAPI.accountQuotaMonitor.create({
+      name: `${account.name || payload.name} 额度监控`,
+      account_id: account.id,
+      provider: createQuotaMonitorProvider.value,
+      enabled: true,
+      interval_seconds: Number(createQuotaMonitorIntervalSeconds.value) || 3600,
+      low_balance_threshold: normalizedCreateQuotaMonitorThreshold(),
+      currency: createQuotaMonitorCurrency.value.trim() || 'USD',
+    })
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.message ||
+      error.response?.data?.detail ||
+      t('admin.accounts.quotaMonitorOnCreate.createFailed', '账号已创建，但额度监控创建失败')
+    )
+  }
+}
+
+const createAccountWithOptionalQuotaMonitor = async (payload: CreateAccountRequest): Promise<Account> => {
+  const account = await adminAPI.accounts.create(payload)
+  await maybeCreateQuotaMonitorForAccount(account, payload)
+  return account
+}
+
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    await createAccountWithOptionalQuotaMonitor(withAntigravityConfirmFlag(payload))
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
@@ -4240,6 +4361,11 @@ const resetForm = () => {
   customErrorCodeInput.value = null
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
+  createQuotaMonitorEnabled.value = false
+  createQuotaMonitorProvider.value = 'sub2api'
+  createQuotaMonitorIntervalSeconds.value = 3600
+  createQuotaMonitorLowBalanceThreshold.value = null
+  createQuotaMonitorCurrency.value = 'USD'
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
@@ -4836,7 +4962,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      await createAccountWithOptionalQuotaMonitor({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -5040,7 +5166,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          await adminAPI.accounts.create({
+          await createAccountWithOptionalQuotaMonitor({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -5154,7 +5280,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
-        await adminAPI.accounts.create(createPayload)
+        await createAccountWithOptionalQuotaMonitor(createPayload)
         successCount++
       } catch (error: any) {
         failedCount++
@@ -5479,7 +5605,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials.temp_unschedulable_rules = tempUnschedPayload
         }
 
-        await adminAPI.accounts.create({
+        await createAccountWithOptionalQuotaMonitor({
           name: accountName,
           notes: form.notes,
           platform: form.platform,

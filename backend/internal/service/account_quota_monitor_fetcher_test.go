@@ -68,6 +68,12 @@ func TestParseQuotaPayload_RejectsUnrecognizedPayload(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseQuotaPayload_ReportsExplicitProviderError(t *testing.T) {
+	_, err := parseQuotaPayload([]byte(`{"success":false,"message":"Unauthorized, invalid access token"}`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Unauthorized, invalid access token")
+}
+
 func floatPtr(v float64) *float64 { return &v }
 
 func TestSanitizeQuotaMonitorErrorRedactsExactRelayKey(t *testing.T) {

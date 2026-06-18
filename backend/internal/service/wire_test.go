@@ -35,3 +35,35 @@ func TestProvideTimingWheelService_Success(t *testing.T) {
 	}
 	svc.Stop()
 }
+
+func TestProvideAccountQuotaMonitorRunner_RespectsBackgroundWorkerDisable(t *testing.T) {
+	t.Setenv("SUB2API_DISABLE_BACKGROUND_WORKERS", "true")
+	t.Setenv("SUB2API_ENABLE_ACCOUNT_QUOTA_MONITOR_WORKER", "")
+
+	svc := NewAccountQuotaMonitorService(&quotaBatchRepoStub{}, &quotaBatchAccountRepoStub{}, quotaBatchEncryptorStub{})
+	runner := ProvideAccountQuotaMonitorRunner(svc)
+	t.Cleanup(runner.Stop)
+
+	if svc.scheduler != nil {
+		t.Fatalf("expected scheduler to remain nil while background workers are disabled")
+	}
+	if runner.started {
+		t.Fatalf("expected runner not to start while background workers are disabled")
+	}
+}
+
+func TestProvideAccountQuotaMonitorRunner_OverrideStartsWhenBackgroundWorkersDisabled(t *testing.T) {
+	t.Setenv("SUB2API_DISABLE_BACKGROUND_WORKERS", "true")
+	t.Setenv("SUB2API_ENABLE_ACCOUNT_QUOTA_MONITOR_WORKER", "true")
+
+	svc := NewAccountQuotaMonitorService(&quotaBatchRepoStub{}, &quotaBatchAccountRepoStub{}, quotaBatchEncryptorStub{})
+	runner := ProvideAccountQuotaMonitorRunner(svc)
+	t.Cleanup(runner.Stop)
+
+	if svc.scheduler != runner {
+		t.Fatalf("expected quota monitor runner to be installed as scheduler when override is enabled")
+	}
+	if !runner.started {
+		t.Fatalf("expected runner to start when override is enabled")
+	}
+}

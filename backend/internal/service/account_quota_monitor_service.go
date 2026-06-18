@@ -146,7 +146,8 @@ func (s *AccountQuotaMonitorService) BatchCreate(ctx context.Context, p AccountQ
 	for i := range accounts {
 		account := &accounts[i]
 		if existing := existingByAccount[account.ID]; existing != nil {
-			if !p.UpdateExisting {
+			shouldReactivate := !existing.Enabled && p.Enabled
+			if !p.UpdateExisting && !shouldReactivate {
 				result.SkippedExisting++
 				continue
 			}

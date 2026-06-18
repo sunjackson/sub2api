@@ -181,9 +181,9 @@ func (r *accountQuotaMonitorRepository) PersistCheckResult(ctx context.Context, 
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE account_quota_monitors
-		SET last_balance=COALESCE($2::numeric, last_balance),
-		    last_quota_total=COALESCE($3::numeric, last_quota_total),
-		    last_quota_used=COALESCE($4::numeric, last_quota_used),
+		SET last_balance=$2::numeric,
+		    last_quota_total=$3::numeric,
+		    last_quota_used=$4::numeric,
 		    currency=CASE WHEN $2::numeric IS NULL AND $3::numeric IS NULL AND $4::numeric IS NULL THEN currency ELSE $5 END,
 		    last_status=$6,
 		    last_message=$7,
@@ -275,10 +275,10 @@ func (r *accountQuotaMonitorRepository) Summary(ctx context.Context) (*service.A
 	if err := r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*),
 		       COUNT(*) FILTER (WHERE enabled = true),
-		       COUNT(*) FILTER (WHERE last_status = 'ok'),
-		       COUNT(*) FILTER (WHERE last_status = 'low_balance'),
-		       COUNT(*) FILTER (WHERE last_status = 'error'),
-		       COUNT(*) FILTER (WHERE last_status = 'unknown')
+		       COUNT(*) FILTER (WHERE enabled = true AND last_status = 'ok'),
+		       COUNT(*) FILTER (WHERE enabled = true AND last_status = 'low_balance'),
+		       COUNT(*) FILTER (WHERE enabled = true AND last_status = 'error'),
+		       COUNT(*) FILTER (WHERE enabled = true AND last_status = 'unknown')
 		FROM account_quota_monitors
 		WHERE deleted_at IS NULL
 	`).Scan(&summary.Total, &summary.Enabled, &summary.OK, &summary.LowBalance, &summary.Error, &summary.Unknown); err != nil {
@@ -288,7 +288,10 @@ func (r *accountQuotaMonitorRepository) Summary(ctx context.Context) (*service.A
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT currency, COALESCE(SUM(last_balance), 0), COUNT(*)
 		FROM account_quota_monitors
-		WHERE deleted_at IS NULL AND last_balance IS NOT NULL
+		WHERE deleted_at IS NULL
+		  AND enabled = true
+		  AND last_status IN ('ok', 'low_balance')
+		  AND last_balance IS NOT NULL
 		GROUP BY currency
 		ORDER BY currency
 	`)
@@ -313,15 +316,20 @@ func (r *accountQuotaMonitorRepository) Trend(ctx context.Context, since time.Ti
 	rows, err := r.db.QueryContext(ctx, `
 		WITH ranked AS (
 		    SELECT date_trunc($2, checked_at) AS bucket,
-		           monitor_id,
-		           currency,
-		           balance,
+		           h.monitor_id,
+		           h.currency,
+		           h.balance,
 		           ROW_NUMBER() OVER (
-		               PARTITION BY date_trunc($2, checked_at), monitor_id, currency
-		               ORDER BY checked_at DESC
+		               PARTITION BY date_trunc($2, checked_at), h.monitor_id, h.currency
+		               ORDER BY h.checked_at DESC
 		           ) AS rn
-		    FROM account_quota_monitor_history
-		    WHERE checked_at >= $1 AND balance IS NOT NULL
+		    FROM account_quota_monitor_history h
+		    JOIN account_quota_monitors m ON m.id = h.monitor_id
+		    WHERE h.checked_at >= $1
+		      AND h.balance IS NOT NULL
+		      AND m.deleted_at IS NULL
+		      AND m.enabled = true
+		      AND m.last_status IN ('ok', 'low_balance')
 		)
 		SELECT bucket, currency, SUM(balance), COUNT(*)
 		FROM ranked
