@@ -162,6 +162,9 @@ func (r *quotaBatchAccountRepoStub) ListByGroup(context.Context, int64) ([]Accou
 	return nil, nil
 }
 func (r *quotaBatchAccountRepoStub) ListActive(context.Context) ([]Account, error) { return nil, nil }
+func (r *quotaBatchAccountRepoStub) ListOAuthRefreshCandidates(context.Context) ([]Account, error) {
+	return nil, nil
+}
 func (r *quotaBatchAccountRepoStub) ListByPlatform(context.Context, string) ([]Account, error) {
 	return nil, nil
 }
