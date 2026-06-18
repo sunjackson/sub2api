@@ -39,7 +39,7 @@
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
-            <button @click="showQuotaMonitorDialog = true" class="btn btn-secondary">
+            <button @click="router.push('/admin/channels/quota-monitor')" class="btn btn-secondary">
               <Icon name="chart" size="md" class="mr-2" />
               {{ t('admin.accountQuotaMonitor.title', '额度监控') }}
             </button>
@@ -614,10 +614,6 @@
       </template>
     </BaseDialog>
 
-    <AccountQuotaMonitorDialog
-      :show="showQuotaMonitorDialog"
-      @close="showQuotaMonitorDialog = false"
-    />
 
     <!-- Delete Confirmation -->
     <ConfirmDialog
@@ -636,6 +632,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
@@ -657,12 +654,12 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
-import AccountQuotaMonitorDialog from '@/components/admin/AccountQuotaMonitorDialog.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const router = useRouter()
 
 // Web Search global enabled state (loaded once on mount)
 const webSearchGlobalEnabled = ref(false)
@@ -746,8 +743,8 @@ const showDialog = ref(false)
 const editingChannel = ref<Channel | null>(null)
 const submitting = ref(false)
 const showDeleteDialog = ref(false)
-const showQuotaMonitorDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
+
 const activeTab = ref<string>('basic')
 
 // Groups

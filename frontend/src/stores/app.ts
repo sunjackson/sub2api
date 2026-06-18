@@ -314,10 +314,10 @@ export const useAppStore = defineStore('app', () => {
       return window.__APP_CONFIG__
     }
 
-    // Return cached data if available and not forcing refresh.
-    // Server-injected settings are intentionally light: large fields such as
-    // base64 logo, home markdown, and legal documents are fetched after mount.
-    if (publicSettingsLoaded.value && !publicSettingsPartial.value && !force) {
+    // Return cached data if available and not forcing refresh. The cache may
+    // come from the lightweight SSR injection; callers that need heavy fields
+    // must opt into fetchCompletePublicSettings().
+    if (publicSettingsLoaded.value && !force) {
       if (cachedPublicSettings.value) {
         return { ...cachedPublicSettings.value }
       }
@@ -384,6 +384,17 @@ export const useAppStore = defineStore('app', () => {
     } finally {
       publicSettingsLoading.value = false
     }
+  }
+
+  /**
+   * Fetch the complete public settings only when a route needs heavy fields
+   * such as base64 logo, home markdown, or legal documents.
+   */
+  async function fetchCompletePublicSettings(): Promise<PublicSettings | null> {
+    if (publicSettingsLoaded.value && !publicSettingsPartial.value && cachedPublicSettings.value) {
+      return { ...cachedPublicSettings.value }
+    }
+    return fetchPublicSettings(true)
   }
 
   /**
@@ -464,6 +475,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Public settings actions
     fetchPublicSettings,
+    fetchCompletePublicSettings,
     clearPublicSettingsCache,
     initFromInjectedConfig
   }

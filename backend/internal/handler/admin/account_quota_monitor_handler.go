@@ -134,13 +134,15 @@ type accountQuotaTrendPointResponse struct {
 	Count    int64   `json:"count"`
 }
 type accountQuotaMonitorBatchCreateResponse struct {
-	Selected        int64                                     `json:"selected"`
-	Created         int64                                     `json:"created"`
-	Updated         int64                                     `json:"updated"`
-	SkippedExisting int64                                     `json:"skipped_existing"`
-	Failed          int64                                     `json:"failed"`
-	Items           []*accountQuotaMonitorResponse            `json:"items"`
-	Failures        []service.AccountQuotaMonitorBatchFailure `json:"failures"`
+	Selected           int64                                     `json:"selected"`
+	Created            int64                                     `json:"created"`
+	Updated            int64                                     `json:"updated"`
+	SkippedExisting    int64                                     `json:"skipped_existing"`
+	SkippedDuplicate   int64                                     `json:"skipped_duplicate"`
+	DuplicateEndpoints []string                                  `json:"duplicate_endpoints"`
+	Failed             int64                                     `json:"failed"`
+	Items              []*accountQuotaMonitorResponse            `json:"items"`
+	Failures           []service.AccountQuotaMonitorBatchFailure `json:"failures"`
 }
 
 func (h *AccountQuotaMonitorHandler) List(c *gin.Context) {
@@ -353,6 +355,15 @@ func (h *AccountQuotaMonitorHandler) Trend(c *gin.Context) {
 	response.Success(c, gin.H{"items": out})
 }
 
+func (h *AccountQuotaMonitorHandler) Candidates(c *gin.Context) {
+	overview, err := h.quotaService.CandidateOverview(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, overview)
+}
+
 func quotaMonitorBatchFiltersFromRequest(req *accountQuotaMonitorBatchAccountFiltersRequest) (service.AccountQuotaMonitorAccountFilters, error) {
 	if req == nil {
 		return service.AccountQuotaMonitorAccountFilters{}, nil
@@ -387,6 +398,8 @@ func accountQuotaBatchCreateToResponse(result *service.AccountQuotaMonitorBatchC
 	resp.Created = result.Created
 	resp.Updated = result.Updated
 	resp.SkippedExisting = result.SkippedExisting
+	resp.SkippedDuplicate = result.SkippedDuplicate
+	resp.DuplicateEndpoints = result.DuplicateEndpoints
 	resp.Failed = result.Failed
 	resp.Failures = result.Failures
 	resp.Items = make([]*accountQuotaMonitorResponse, 0, len(result.Items))

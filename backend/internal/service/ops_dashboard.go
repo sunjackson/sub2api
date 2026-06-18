@@ -8,6 +8,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -44,6 +45,9 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 
 	// Best-effort system health + jobs; dashboard metrics should still render if these are missing.
 	if metrics, err := s.opsRepo.GetLatestSystemMetrics(ctx, 1); err == nil {
+		// Older collectors wrote Linux buff/cache into memory_used_mb without a split.
+		// Fill a live host breakdown so the dashboard can distinguish pressure from cache immediately after upgrade.
+		enrichMemorySnapshotFromHost(ctx, metrics)
 		// Attach config-derived limits so the UI can show "current / max" for connection pools.
 		// These are best-effort and should never block the dashboard rendering.
 		if s != nil && s.cfg != nil {
@@ -68,6 +72,25 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 	overview.HealthScore = computeDashboardHealthScore(time.Now().UTC(), overview)
 
 	return overview, nil
+}
+
+func enrichMemorySnapshotFromHost(ctx context.Context, metrics *OpsSystemMetricsSnapshot) {
+	if metrics == nil || metrics.MemoryAvailableMB != nil {
+		return
+	}
+	vm, err := mem.VirtualMemoryWithContext(ctx)
+	if err != nil || vm == nil {
+		return
+	}
+	hostStats := buildHostMemoryStats(vm)
+	metrics.MemoryUsedMB = hostStats.memoryUsedMB
+	metrics.MemoryTotalMB = hostStats.memoryTotalMB
+	metrics.MemoryUsagePercent = hostStats.memoryUsagePercent
+	metrics.MemoryAvailableMB = hostStats.memoryAvailableMB
+	metrics.MemoryCacheMB = hostStats.memoryCacheMB
+	metrics.MemoryFreeMB = hostStats.memoryFreeMB
+	metrics.MemoryRawUsedMB = hostStats.memoryRawUsedMB
+	metrics.MemoryUsageBasis = "pressure"
 }
 
 func (s *OpsService) resolveOpsQueryMode(ctx context.Context, requested OpsQueryMode) OpsQueryMode {

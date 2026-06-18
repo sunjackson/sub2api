@@ -92,21 +92,21 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
-  // Check if setup is needed
-  try {
-    const status = await getSetupStatus()
-    if (status.needs_setup && route.path !== '/setup') {
-      router.replace('/setup')
-      return
+  // Production HTML injects public settings before Vue mounts. In that path we
+  // must not block every route on /setup/status or the full /settings/public
+  // payload. Setup mode has no injected config, so keep the wizard fallback.
+  if (!window.__APP_CONFIG__) {
+    try {
+      const status = await getSetupStatus()
+      if (status.needs_setup && route.path !== '/setup') {
+        await router.replace('/setup')
+        return
+      }
+    } catch {
+      // If setup endpoint fails, assume normal mode and continue.
     }
-  } catch {
-    // If setup endpoint fails, assume normal mode and continue
   }
 
-  // Load public settings into appStore (will be cached for other components)
-  await appStore.fetchPublicSettings()
-
-  // Re-resolve document title now that siteName is available
   document.title = resolveDocumentTitle(route.meta.title, appStore.siteName, route.meta.titleKey as string)
 })
 </script>

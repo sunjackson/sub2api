@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,7 +38,7 @@ type AccountQuotaMonitorService struct {
 	repo        AccountQuotaMonitorRepository
 	accountRepo AccountRepository
 	encryptor   SecretEncryptor
-	fetcher     *accountQuotaFetcher
+	fetcher     accountQuotaFetchClient
 	scheduler   AccountQuotaMonitorScheduler
 }
 
@@ -90,7 +91,7 @@ func (s *AccountQuotaMonitorService) Create(ctx context.Context, p AccountQuotaM
 	if err := s.validateCreate(ctx, p); err != nil {
 		return nil, err
 	}
-	encrypted, err := s.encryptOverride(p.APIKeyOverride)
+	account, err := s.accountRepo.GetByID(ctx, p.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +100,6 @@ func (s *AccountQuotaMonitorService) Create(ctx context.Context, p AccountQuotaM
 		AccountID:           p.AccountID,
 		Provider:            normalizeQuotaMonitorProvider(p.Provider),
 		Endpoint:            normalizeQuotaEndpoint(p.Endpoint),
-		APIKeyOverride:      encrypted,
-		APIKeyOverrideSet:   strings.TrimSpace(encrypted) != "",
 		Enabled:             p.Enabled,
 		IntervalSeconds:     normalizeQuotaInterval(p.IntervalSeconds),
 		LowBalanceThreshold: cloneFloat64Ptr(p.LowBalanceThreshold),
@@ -108,6 +107,15 @@ func (s *AccountQuotaMonitorService) Create(ctx context.Context, p AccountQuotaM
 		LastStatus:          QuotaMonitorStatusUnknown,
 		CreatedBy:           p.CreatedBy,
 	}
+	if err := s.validateMonitorFetch(ctx, m, account, strings.TrimSpace(p.APIKeyOverride), true); err != nil {
+		return nil, err
+	}
+	encrypted, err := s.encryptOverride(p.APIKeyOverride)
+	if err != nil {
+		return nil, err
+	}
+	m.APIKeyOverride = encrypted
+	m.APIKeyOverrideSet = strings.TrimSpace(encrypted) != ""
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, err
 	}
@@ -143,8 +151,17 @@ func (s *AccountQuotaMonitorService) BatchCreate(ctx context.Context, p AccountQ
 	}
 
 	result := &AccountQuotaMonitorBatchCreateResult{Selected: int64(len(accounts))}
+	endpointOwners := quotaMonitorEndpointOwners(accounts, existingByAccount, p.Endpoint)
 	for i := range accounts {
 		account := &accounts[i]
+		endpointKey := quotaMonitorEndpointKeyForAccount(account, p.Endpoint)
+		if endpointKey != "" {
+			if ownerID, ok := endpointOwners[endpointKey]; ok && ownerID != account.ID {
+				result.SkippedDuplicate++
+				result.DuplicateEndpoints = appendUniqueQuotaEndpoint(result.DuplicateEndpoints, endpointKey)
+				continue
+			}
+		}
 		if existing := existingByAccount[account.ID]; existing != nil {
 			shouldReactivate := !existing.Enabled && p.Enabled
 			if !p.UpdateExisting && !shouldReactivate {
@@ -192,6 +209,13 @@ func (s *AccountQuotaMonitorService) Update(ctx context.Context, id int64, p Acc
 	}
 	plainOverride, overrideUpdated, err := s.applyOverrideUpdate(existing, p)
 	if err != nil {
+		return nil, err
+	}
+	account, err := s.accountRepo.GetByID(ctx, existing.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateMonitorFetch(ctx, existing, account, plainOverride, overrideUpdated); err != nil {
 		return nil, err
 	}
 	if err := s.repo.Update(ctx, existing); err != nil {
@@ -267,6 +291,143 @@ func (s *AccountQuotaMonitorService) Trend(ctx context.Context, days int, bucket
 	return s.repo.Trend(ctx, time.Now().UTC().AddDate(0, 0, -days), bucket)
 }
 
+func (s *AccountQuotaMonitorService) CandidateOverview(ctx context.Context) (*AccountQuotaMonitorCandidateOverview, error) {
+	accounts, err := s.resolveBatchAccounts(ctx, AccountQuotaMonitorBatchCreateParams{
+		Filters:     AccountQuotaMonitorAccountFilters{Status: StatusActive},
+		MaxAccounts: quotaMonitorBatchDefaultMaxAccounts,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	accountByID := make(map[int64]*Account, len(accounts))
+	groupsByEndpoint := make(map[string]*AccountQuotaMonitorCandidateGroup)
+	overview := &AccountQuotaMonitorCandidateOverview{TotalAccounts: int64(len(accounts))}
+
+	for i := range accounts {
+		account := &accounts[i]
+		if account.ID <= 0 {
+			continue
+		}
+		accountByID[account.ID] = account
+		endpoint := effectiveQuotaMonitorEndpointForAccount(account, "")
+		endpointKey := normalizeQuotaMonitorEndpointKey(endpoint)
+		if endpointKey == "" {
+			overview.AccountsWithoutEndpoint++
+			continue
+		}
+		overview.AccountsWithEndpoint++
+		group := groupsByEndpoint[endpointKey]
+		if group == nil {
+			provider, detected := detectQuotaMonitorProviderFromEndpoint(endpoint)
+			group = &AccountQuotaMonitorCandidateGroup{
+				Endpoint:         endpoint,
+				EndpointKey:      endpointKey,
+				Provider:         provider,
+				ProviderDetected: detected,
+				StatusCounts:     map[string]int64{},
+			}
+			groupsByEndpoint[endpointKey] = group
+		}
+		group.AccountCount++
+		group.StatusCounts[account.Status]++
+		if group.RepresentativeAccountID == 0 {
+			group.RepresentativeAccountID = account.ID
+		}
+		if len(group.SampleAccounts) < 5 {
+			group.SampleAccounts = append(group.SampleAccounts, AccountQuotaMonitorCandidateAccount{
+				ID:       account.ID,
+				Name:     account.Name,
+				Platform: account.Platform,
+				Type:     account.Type,
+				Status:   account.Status,
+			})
+		}
+	}
+
+	monitors, _, err := s.repo.List(ctx, AccountQuotaMonitorListParams{Page: 1, PageSize: quotaMonitorBatchDefaultMaxAccounts})
+	if err != nil {
+		return nil, err
+	}
+	for _, monitor := range monitors {
+		if monitor == nil {
+			continue
+		}
+		account := accountByID[monitor.AccountID]
+		endpoint := strings.TrimSpace(monitor.Endpoint)
+		if endpoint == "" && account != nil {
+			endpoint = effectiveQuotaMonitorEndpointForAccount(account, "")
+		}
+		endpointKey := normalizeQuotaMonitorEndpointKey(endpoint)
+		if endpointKey == "" {
+			continue
+		}
+		group := groupsByEndpoint[endpointKey]
+		if group == nil {
+			provider := normalizeQuotaMonitorProvider(monitor.Provider)
+			detected := provider == QuotaMonitorProviderSub2API || provider == QuotaMonitorProviderNewAPI
+			if provider == "" {
+				provider, detected = detectQuotaMonitorProviderFromEndpoint(endpoint)
+			}
+			group = &AccountQuotaMonitorCandidateGroup{
+				Endpoint:         endpoint,
+				EndpointKey:      endpointKey,
+				Provider:         provider,
+				ProviderDetected: detected,
+				StatusCounts:     map[string]int64{},
+			}
+			groupsByEndpoint[endpointKey] = group
+		}
+		group.MonitorCount++
+		group.ExistingMonitorIDs = append(group.ExistingMonitorIDs, monitor.ID)
+		if group.Provider == "" || group.Provider == QuotaMonitorProviderCustom {
+			if normalized := normalizeQuotaMonitorProvider(monitor.Provider); normalized != "" {
+				group.Provider = normalized
+				group.ProviderDetected = normalized == QuotaMonitorProviderSub2API || normalized == QuotaMonitorProviderNewAPI
+			}
+		}
+	}
+
+	overview.Groups = make([]AccountQuotaMonitorCandidateGroup, 0, len(groupsByEndpoint))
+	for _, group := range groupsByEndpoint {
+		group.Covered = group.MonitorCount > 0
+		if !group.Covered {
+			group.MissingAccountCount = group.AccountCount
+		}
+		if group.MonitorCount > 1 {
+			group.DuplicateMonitorCount = group.MonitorCount - 1
+			overview.DuplicateMonitorGroups++
+		}
+		if group.Provider == "" {
+			group.Provider = QuotaMonitorProviderCustom
+		}
+		overview.EndpointGroups++
+		if group.Covered {
+			overview.CoveredGroups++
+		} else {
+			overview.MissingGroups++
+		}
+		if group.ProviderDetected {
+			overview.DetectedProviderGroups++
+		} else {
+			overview.CustomProviderGroups++
+		}
+		overview.Groups = append(overview.Groups, *group)
+	}
+
+	sort.SliceStable(overview.Groups, func(i, j int) bool {
+		a, b := overview.Groups[i], overview.Groups[j]
+		if a.Covered != b.Covered {
+			return !a.Covered
+		}
+		if a.AccountCount != b.AccountCount {
+			return a.AccountCount > b.AccountCount
+		}
+		return a.EndpointKey < b.EndpointKey
+	})
+	return overview, nil
+}
+
 func (s *AccountQuotaMonitorService) validateBatchCreate(ctx context.Context, p AccountQuotaMonitorBatchCreateParams) error {
 	provider := normalizeQuotaMonitorProvider(p.Provider)
 	if err := validateQuotaMonitorProvider(provider); err != nil {
@@ -332,10 +493,7 @@ func (s *AccountQuotaMonitorService) createMonitorForAccount(ctx context.Context
 	if account == nil {
 		return nil, ErrAccountQuotaMonitorMissingAccount
 	}
-	encrypted, err := s.encryptOverride(p.APIKeyOverride)
-	if err != nil {
-		return nil, err
-	}
+	endpoint := effectiveQuotaMonitorEndpointForAccount(account, p.Endpoint)
 	m := &AccountQuotaMonitor{
 		Name:                quotaMonitorNameForAccount(account),
 		AccountID:           account.ID,
@@ -343,9 +501,7 @@ func (s *AccountQuotaMonitorService) createMonitorForAccount(ctx context.Context
 		AccountPlatform:     account.Platform,
 		AccountType:         account.Type,
 		Provider:            normalizeQuotaMonitorProvider(p.Provider),
-		Endpoint:            normalizeQuotaEndpoint(p.Endpoint),
-		APIKeyOverride:      encrypted,
-		APIKeyOverrideSet:   strings.TrimSpace(encrypted) != "",
+		Endpoint:            endpoint,
 		Enabled:             p.Enabled,
 		IntervalSeconds:     normalizeQuotaInterval(p.IntervalSeconds),
 		LowBalanceThreshold: cloneFloat64Ptr(p.LowBalanceThreshold),
@@ -353,6 +509,15 @@ func (s *AccountQuotaMonitorService) createMonitorForAccount(ctx context.Context
 		LastStatus:          QuotaMonitorStatusUnknown,
 		CreatedBy:           p.CreatedBy,
 	}
+	if err := s.validateMonitorFetch(ctx, m, account, strings.TrimSpace(p.APIKeyOverride), true); err != nil {
+		return nil, err
+	}
+	encrypted, err := s.encryptOverride(p.APIKeyOverride)
+	if err != nil {
+		return nil, err
+	}
+	m.APIKeyOverride = encrypted
+	m.APIKeyOverrideSet = strings.TrimSpace(encrypted) != ""
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, err
 	}
@@ -368,7 +533,7 @@ func (s *AccountQuotaMonitorService) applyBatchUpdateToExisting(ctx context.Cont
 	if existing == nil || account == nil {
 		return ErrAccountQuotaMonitorMissingAccount
 	}
-	endpoint := normalizeQuotaEndpoint(p.Endpoint)
+	endpoint := effectiveQuotaMonitorEndpointForAccount(account, p.Endpoint)
 	currency := normalizeQuotaCurrency(p.Currency)
 	provider := normalizeQuotaMonitorProvider(p.Provider)
 	interval := normalizeQuotaInterval(p.IntervalSeconds)
@@ -387,9 +552,16 @@ func (s *AccountQuotaMonitorService) applyBatchUpdateToExisting(ctx context.Cont
 	existing.IntervalSeconds = interval
 	existing.LowBalanceThreshold = cloneFloat64Ptr(p.LowBalanceThreshold)
 	existing.Currency = currency
+	plainOverrideKnown := false
+	validationOverride := ""
 	if strings.TrimSpace(p.APIKeyOverride) != "" {
 		existing.APIKeyOverride = plainOverride
 		existing.APIKeyOverrideSet = true
+		plainOverrideKnown = true
+		validationOverride = strings.TrimSpace(p.APIKeyOverride)
+	}
+	if err := s.validateMonitorFetch(ctx, existing, account, validationOverride, plainOverrideKnown); err != nil {
+		return err
 	}
 	return s.applyUpdate(ctx, existing, AccountQuotaMonitorUpdateParams{})
 }
@@ -402,6 +574,26 @@ func accountIDsFromAccounts(accounts []Account) []int64 {
 		}
 	}
 	return ids
+}
+
+func quotaMonitorEndpointOwners(accounts []Account, existingByAccount map[int64]*AccountQuotaMonitor, overrideEndpoint string) map[string]int64 {
+	owners := make(map[string]int64, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		endpointKey := quotaMonitorEndpointKeyForAccount(account, overrideEndpoint)
+		if endpointKey == "" || account.ID <= 0 {
+			continue
+		}
+		ownerID, exists := owners[endpointKey]
+		if !exists {
+			owners[endpointKey] = account.ID
+			continue
+		}
+		if existingByAccount[ownerID] == nil && existingByAccount[account.ID] != nil {
+			owners[endpointKey] = account.ID
+		}
+	}
+	return owners
 }
 
 func uniquePositiveInt64s(in []int64) []int64 {
@@ -418,6 +610,58 @@ func uniquePositiveInt64s(in []int64) []int64 {
 		out = append(out, id)
 	}
 	return out
+}
+
+func quotaMonitorEndpointKeyForAccount(account *Account, overrideEndpoint string) string {
+	return normalizeQuotaMonitorEndpointKey(effectiveQuotaMonitorEndpointForAccount(account, overrideEndpoint))
+}
+
+func effectiveQuotaMonitorEndpointForAccount(account *Account, overrideEndpoint string) string {
+	endpoint := strings.TrimSpace(overrideEndpoint)
+	if endpoint == "" && account != nil {
+		endpoint = strings.TrimSpace(account.GetCredential("base_url"))
+		if endpoint == "" && account.IsCustomBaseURLEnabled() {
+			endpoint = strings.TrimSpace(account.GetCustomBaseURL())
+		}
+	}
+	return normalizeQuotaEndpoint(endpoint)
+}
+
+func normalizeQuotaMonitorEndpointKey(raw string) string {
+	endpoint := normalizeQuotaEndpoint(raw)
+	if endpoint == "" {
+		return ""
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(strings.TrimRight(endpoint, "/"))
+	}
+	u.Fragment = ""
+	u.RawQuery = ""
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	path := strings.TrimRight(u.EscapedPath(), "/")
+	if isVersionOnlyPath(path) {
+		u.Path = ""
+		u.RawPath = ""
+	} else {
+		u.Path = path
+		u.RawPath = ""
+	}
+	return strings.TrimRight(u.String(), "/")
+}
+
+func appendUniqueQuotaEndpoint(items []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return items
+	}
+	for _, existing := range items {
+		if existing == value {
+			return items
+		}
+	}
+	return append(items, value)
 }
 
 func quotaMonitorNameForAccount(account *Account) string {
@@ -524,6 +768,40 @@ func (s *AccountQuotaMonitorService) applyOverrideUpdate(existing *AccountQuotaM
 	existing.APIKeyOverride = encrypted
 	existing.APIKeyOverrideSet = true
 	return plain, true, nil
+}
+
+func (s *AccountQuotaMonitorService) validateMonitorFetch(ctx context.Context, m *AccountQuotaMonitor, account *Account, plainOverride string, overrideKnown bool) error {
+	if m == nil || !m.Enabled {
+		return nil
+	}
+	candidate := *m
+	if overrideKnown {
+		candidate.APIKeyOverride = strings.TrimSpace(plainOverride)
+	} else if strings.TrimSpace(candidate.APIKeyOverride) != "" {
+		if s.encryptor == nil {
+			return ErrAccountQuotaMonitorKeyDecryptFailed
+		}
+		plain, err := s.encryptor.Decrypt(candidate.APIKeyOverride)
+		if err != nil {
+			slog.Warn("account_quota_monitor: decrypt api key override failed before fetch validation", "monitor_id", m.ID, "error", err)
+			return ErrAccountQuotaMonitorKeyDecryptFailed
+		}
+		candidate.APIKeyOverride = strings.TrimSpace(plain)
+	}
+	endpoint, apiKey := resolveQuotaMonitorEndpointAndKey(&candidate, account)
+	validationCtx, cancel := context.WithTimeout(ctx, quotaMonitorRunOneTimeout)
+	defer cancel()
+	if _, err := s.fetcher.Fetch(validationCtx, accountQuotaFetchInput{
+		Provider:  candidate.Provider,
+		Endpoint:  endpoint,
+		APIKey:    apiKey,
+		Currency:  candidate.Currency,
+		Threshold: candidate.LowBalanceThreshold,
+	}); err != nil {
+		slog.Warn("account_quota_monitor: fetch validation failed", "monitor_id", m.ID, "account_id", m.AccountID, "endpoint", normalizeQuotaMonitorEndpointKey(endpoint), "error", sanitizeQuotaMonitorError(err.Error(), apiKey))
+		return ErrAccountQuotaMonitorFetchFailed
+	}
+	return nil
 }
 
 func (s *AccountQuotaMonitorService) runCheckForMonitor(ctx context.Context, m *AccountQuotaMonitor) *AccountQuotaCheckResult {

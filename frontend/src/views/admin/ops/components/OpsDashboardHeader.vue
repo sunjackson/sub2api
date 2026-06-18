@@ -670,6 +670,29 @@ const memPercentClass = computed(() => {
   return 'text-emerald-600 dark:text-emerald-400'
 })
 
+const memoryPressureLine = computed(() => {
+  const sm = systemMetrics.value
+  if (!sm || sm.memory_used_mb == null || sm.memory_total_mb == null) return '-'
+  return `${t('admin.ops.memoryPressure')} ${formatNumber(sm.memory_used_mb)} / ${formatNumber(sm.memory_total_mb)} MB`
+})
+
+const memoryBreakdownLine = computed(() => {
+  const sm = systemMetrics.value
+  if (!sm) return ''
+  const parts: string[] = []
+  if (sm.memory_cache_mb != null) {
+    parts.push(`${t('admin.ops.memoryCache')} ${formatNumber(sm.memory_cache_mb)} MB`)
+  }
+  if (sm.memory_available_mb != null) {
+    parts.push(`${t('admin.ops.memoryAvailable')} ${formatNumber(sm.memory_available_mb)} MB`)
+  }
+  if (parts.length > 0) return parts.join(' · ')
+  if (sm.memory_raw_used_mb != null && sm.memory_total_mb != null) {
+    return `${t('admin.ops.memoryRawUsed')} ${formatNumber(sm.memory_raw_used_mb)} / ${formatNumber(sm.memory_total_mb)} MB`
+  }
+  return ''
+})
+
 const dbConnActiveValue = computed<number | null>(() => {
   const v = systemMetrics.value?.db_conn_active
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -1457,12 +1480,9 @@ function handleToolbarRefresh() {
           <div class="mt-1 text-lg font-black" :class="memPercentClass">
             {{ memPercentValue == null ? '-' : `${memPercentValue.toFixed(1)}%` }}
           </div>
-          <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
-            {{
-              systemMetrics?.memory_used_mb == null || systemMetrics?.memory_total_mb == null
-                ? '-'
-                : `${formatNumber(systemMetrics.memory_used_mb)} / ${formatNumber(systemMetrics.memory_total_mb)} MB`
-            }}
+          <div v-if="!props.fullscreen" class="mt-1 space-y-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+            <div>{{ memoryPressureLine }}</div>
+            <div v-if="memoryBreakdownLine" class="text-gray-400 dark:text-gray-500">{{ memoryBreakdownLine }}</div>
           </div>
         </div>
 

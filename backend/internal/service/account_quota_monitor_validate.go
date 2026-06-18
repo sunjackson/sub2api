@@ -19,6 +19,39 @@ func normalizeQuotaMonitorProvider(provider string) string {
 	return strings.ToLower(strings.TrimSpace(provider))
 }
 
+func detectQuotaMonitorProviderFromEndpoint(raw string) (provider string, detected bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return QuotaMonitorProviderCustom, false
+	}
+	haystack := strings.ToLower(raw)
+	if normalized, err := url.Parse(raw); err == nil && normalized.Host != "" {
+		haystack = strings.ToLower(normalized.Hostname() + normalized.EscapedPath())
+	}
+	switch {
+	case strings.Contains(haystack, "newapi"), strings.Contains(haystack, "new-api"), strings.Contains(haystack, "new_api"):
+		return QuotaMonitorProviderNewAPI, true
+	case strings.Contains(haystack, "sub2api"), strings.Contains(haystack, "sub2-api"), strings.Contains(haystack, "sub2_api"):
+		return QuotaMonitorProviderSub2API, true
+	case strings.HasPrefix(haystack, "sub2."), strings.HasPrefix(haystack, "sub."):
+		return QuotaMonitorProviderSub2API, true
+	case strings.Contains(haystack, "givemetoken"), strings.Contains(haystack, "jgy.ai"):
+		return QuotaMonitorProviderSub2API, true
+	}
+	path := ""
+	if parsed, err := url.Parse(raw); err == nil {
+		path = strings.TrimRight(strings.ToLower(parsed.EscapedPath()), "/")
+	}
+	switch path {
+	case "/api/user/self", "/api/user/dashboard", "/api/token/self", "/api/user/token", "/api/usage/token":
+		return QuotaMonitorProviderNewAPI, true
+	case "/api/v1/user/profile", "/api/v1/user", "/api/v1/user/self":
+		return QuotaMonitorProviderSub2API, true
+	default:
+		return QuotaMonitorProviderCustom, false
+	}
+}
+
 func validateQuotaMonitorInterval(sec int) error {
 	if sec < quotaMonitorMinIntervalSeconds || sec > quotaMonitorMaxIntervalSeconds {
 		return ErrAccountQuotaMonitorInvalidInterval

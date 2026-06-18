@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,4 +58,47 @@ func TestOpsMetricsCollectorQueryErrorCountsExcludesCountTokens(t *testing.T) {
 	mock.ExpectClose()
 	require.NoError(t, db.Close())
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestBuildHostMemoryStatsUsesPressureAndBreakdown(t *testing.T) {
+	stats := buildHostMemoryStats(&mem.VirtualMemoryStat{
+		Total:        16 * bytesPerMB,
+		Available:    12 * bytesPerMB,
+		Used:         14 * bytesPerMB,
+		Free:         1 * bytesPerMB,
+		Cached:       11 * bytesPerMB,
+		Buffers:      1 * bytesPerMB,
+		Sreclaimable: 1 * bytesPerMB,
+		UsedPercent:  87.5,
+	})
+
+	require.NotNil(t, stats.memoryUsedMB)
+	require.Equal(t, int64(4), *stats.memoryUsedMB)
+	require.NotNil(t, stats.memoryTotalMB)
+	require.Equal(t, int64(16), *stats.memoryTotalMB)
+	require.NotNil(t, stats.memoryUsagePercent)
+	require.Equal(t, 25.0, *stats.memoryUsagePercent)
+	require.NotNil(t, stats.memoryAvailableMB)
+	require.Equal(t, int64(12), *stats.memoryAvailableMB)
+	require.NotNil(t, stats.memoryRawUsedMB)
+	require.Equal(t, int64(14), *stats.memoryRawUsedMB)
+	require.NotNil(t, stats.memoryCacheMB)
+	require.Equal(t, int64(13), *stats.memoryCacheMB)
+	require.NotNil(t, stats.memoryFreeMB)
+	require.Equal(t, int64(1), *stats.memoryFreeMB)
+}
+
+func TestBuildHostMemoryStatsClampsNegativePressure(t *testing.T) {
+	stats := buildHostMemoryStats(&mem.VirtualMemoryStat{
+		Total:       8 * bytesPerMB,
+		Available:   9 * bytesPerMB,
+		Used:        1 * bytesPerMB,
+		Free:        7 * bytesPerMB,
+		UsedPercent: 12.5,
+	})
+
+	require.NotNil(t, stats.memoryUsedMB)
+	require.Equal(t, int64(0), *stats.memoryUsedMB)
+	require.NotNil(t, stats.memoryUsagePercent)
+	require.Equal(t, 0.0, *stats.memoryUsagePercent)
 }

@@ -337,6 +337,10 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 		MemoryUsedMB:       sys.memoryUsedMB,
 		MemoryTotalMB:      sys.memoryTotalMB,
 		MemoryUsagePercent: sys.memoryUsagePercent,
+		MemoryAvailableMB:  sys.memoryAvailableMB,
+		MemoryCacheMB:      sys.memoryCacheMB,
+		MemoryFreeMB:       sys.memoryFreeMB,
+		MemoryRawUsedMB:    sys.memoryRawUsedMB,
 
 		DBOK:    boolPtr(dbOK),
 		RedisOK: boolPtr(redisOK),
@@ -580,6 +584,10 @@ type opsCollectedSystemStats struct {
 	memoryUsedMB       *int64
 	memoryTotalMB      *int64
 	memoryUsagePercent *float64
+	memoryAvailableMB  *int64
+	memoryCacheMB      *int64
+	memoryFreeMB       *int64
+	memoryRawUsedMB    *int64
 }
 
 func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsCollectedSystemStats, error) {
@@ -599,6 +607,7 @@ func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsColle
 	if cgroupOK {
 		usedMB := int64(cgroupUsed / bytesPerMB)
 		out.memoryUsedMB = &usedMB
+		out.memoryRawUsedMB = &usedMB
 		if cgroupTotal > 0 {
 			totalMB := int64(cgroupTotal / bytesPerMB)
 			out.memoryTotalMB = &totalMB
@@ -615,30 +624,71 @@ func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsColle
 		}
 	}
 
-	// If total memory isn't available from cgroup (e.g. memory.max = "max"), fill total from host.
-	if out.memoryUsedMB == nil || out.memoryTotalMB == nil || out.memoryUsagePercent == nil {
-		if vm, err := mem.VirtualMemoryWithContext(ctx); err == nil && vm != nil {
+	// Use host MemAvailable as the dashboard memory pressure basis. Systemd/root cgroups
+	// can report Linux page cache as used memory, which makes normal cache growth look like
+	// a leak. Keep cgroup values only for a clearly tighter container memory limit.
+	if vm, err := mem.VirtualMemoryWithContext(ctx); err == nil && vm != nil {
+		hostStats := buildHostMemoryStats(vm)
+		containerLimit := cgroupOK && cgroupTotal > 0 && vm.Total > 0 && cgroupTotal < (vm.Total*9/10)
+		out.memoryAvailableMB = hostStats.memoryAvailableMB
+		out.memoryCacheMB = hostStats.memoryCacheMB
+		out.memoryFreeMB = hostStats.memoryFreeMB
+		out.memoryRawUsedMB = hostStats.memoryRawUsedMB
+		if !containerLimit {
+			out.memoryUsedMB = hostStats.memoryUsedMB
+			out.memoryTotalMB = hostStats.memoryTotalMB
+			out.memoryUsagePercent = hostStats.memoryUsagePercent
+		} else {
 			if out.memoryUsedMB == nil {
-				usedMB := int64(vm.Used / bytesPerMB)
-				out.memoryUsedMB = &usedMB
+				out.memoryUsedMB = hostStats.memoryUsedMB
 			}
 			if out.memoryTotalMB == nil {
-				totalMB := int64(vm.Total / bytesPerMB)
-				out.memoryTotalMB = &totalMB
+				out.memoryTotalMB = hostStats.memoryTotalMB
 			}
 			if out.memoryUsagePercent == nil {
 				if out.memoryUsedMB != nil && out.memoryTotalMB != nil && *out.memoryTotalMB > 0 {
 					pct := roundTo1DP(float64(*out.memoryUsedMB) / float64(*out.memoryTotalMB) * 100)
 					out.memoryUsagePercent = &pct
 				} else {
-					pct := roundTo1DP(vm.UsedPercent)
-					out.memoryUsagePercent = &pct
+					out.memoryUsagePercent = hostStats.memoryUsagePercent
 				}
 			}
 		}
 	}
 
 	return out, nil
+}
+
+func buildHostMemoryStats(vm *mem.VirtualMemoryStat) *opsCollectedSystemStats {
+	out := &opsCollectedSystemStats{}
+	if vm == nil {
+		return out
+	}
+
+	totalMB := int64(vm.Total / bytesPerMB)
+	availableMB := int64(vm.Available / bytesPerMB)
+	rawUsedMB := int64(vm.Used / bytesPerMB)
+	freeMB := int64(vm.Free / bytesPerMB)
+	cacheMB := int64((vm.Cached + vm.Buffers + vm.Sreclaimable) / bytesPerMB)
+	pressureUsedMB := totalMB - availableMB
+	if pressureUsedMB < 0 {
+		pressureUsedMB = 0
+	}
+
+	out.memoryUsedMB = &pressureUsedMB
+	out.memoryTotalMB = &totalMB
+	out.memoryAvailableMB = &availableMB
+	out.memoryCacheMB = &cacheMB
+	out.memoryFreeMB = &freeMB
+	out.memoryRawUsedMB = &rawUsedMB
+	if totalMB > 0 {
+		pct := roundTo1DP(float64(pressureUsedMB) / float64(totalMB) * 100)
+		out.memoryUsagePercent = &pct
+	} else {
+		pct := roundTo1DP(vm.UsedPercent)
+		out.memoryUsagePercent = &pct
+	}
+	return out
 }
 
 func (c *OpsMetricsCollector) tryCgroupCPUPercent(now time.Time) *float64 {

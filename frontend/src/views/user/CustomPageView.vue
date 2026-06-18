@@ -355,12 +355,13 @@ onMounted(async () => {
     })
   }
 
-  if (appStore.publicSettingsLoaded) return
-  loading.value = true
-  try {
-    await appStore.fetchPublicSettings()
-  } finally {
-    loading.value = false
+  if (!appStore.publicSettingsLoaded || appStore.publicSettingsPartial) {
+    loading.value = true
+    try {
+      await appStore.fetchCompletePublicSettings()
+    } finally {
+      loading.value = false
+    }
   }
 })
 
