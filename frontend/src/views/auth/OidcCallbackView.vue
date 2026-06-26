@@ -353,7 +353,8 @@ function persistPendingAuthSession(redirect?: string) {
     token: '',
     token_field: 'pending_oauth_token',
     provider: 'oidc',
-    redirect: sanitizeRedirectPath(redirect || redirectTo.value)
+    redirect: sanitizeRedirectPath(redirect || redirectTo.value),
+    aff_code: loadOAuthAffiliateCode() || undefined
   })
 }
 

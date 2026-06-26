@@ -341,7 +341,8 @@ describe('OidcCallbackView', () => {
       token: '',
       token_field: 'pending_oauth_token',
       provider: 'oidc',
-      redirect: '/welcome'
+      redirect: '/welcome',
+      aff_code: undefined
     })
   })
 

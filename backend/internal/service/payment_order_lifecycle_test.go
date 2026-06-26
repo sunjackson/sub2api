@@ -5,11 +5,13 @@ package service
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -794,6 +796,47 @@ func TestPaymentOrderQueryReferenceUsesOutTradeNoForOfficialProviders(t *testing
 	require.Equal(t, "sub2_out_trade_no", paymentOrderQueryReference(order, paymentFulfillmentTestProvider{
 		key: payment.TypeWxpay,
 	}))
+}
+
+func TestMarkCompletedAlreadyCompletedIsIdempotentWithoutAudit(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentOrderLifecycleTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("completed-idempotent@example.com").
+		SetPasswordHash("hash").
+		SetUsername("completed-idempotent-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	order, err := client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(88).
+		SetPayAmount(88).
+		SetFeeRate(0).
+		SetRechargeCode("COMPLETED-IDEMPOTENT").
+		SetOutTradeNo("sub2_completed_idempotent").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade-completed").
+		SetOrderType(payment.OrderTypeBalance).
+		SetStatus(OrderStatusCompleted).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetCompletedAt(time.Now()).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	require.NoError(t, svc.markCompleted(ctx, order, "RECHARGE_SUCCESS"))
+
+	auditCount, err := client.PaymentAuditLog.Query().
+		Where(paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10))).
+		Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 0, auditCount)
 }
 
 func newPaymentOrderLifecycleTestClient(t *testing.T) *dbent.Client {

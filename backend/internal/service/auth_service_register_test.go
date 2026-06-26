@@ -62,8 +62,34 @@ func (s *settingRepoStub) Delete(ctx context.Context, key string) error {
 }
 
 type emailCacheStub struct {
-	data *VerificationCodeData
-	err  error
+	data         *VerificationCodeData
+	err          error
+	setEmails    []string
+	deleteEmails []string
+}
+
+type registerRedeemRepoStub struct {
+	RedeemCodeRepository
+	code     *RedeemCode
+	getErr   error
+	useErr   error
+	useCalls int
+}
+
+func (s *registerRedeemRepoStub) GetByCode(_ context.Context, code string) (*RedeemCode, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	if s.code == nil || s.code.Code != code {
+		return nil, ErrRedeemCodeNotFound
+	}
+	cloned := *s.code
+	return &cloned, nil
+}
+
+func (s *registerRedeemRepoStub) Use(_ context.Context, _, _ int64) error {
+	s.useCalls++
+	return s.useErr
 }
 
 type defaultSubscriptionAssignerStub struct {
@@ -167,10 +193,14 @@ func (s *emailCacheStub) GetVerificationCode(ctx context.Context, email string) 
 }
 
 func (s *emailCacheStub) SetVerificationCode(ctx context.Context, email string, data *VerificationCodeData, ttl time.Duration) error {
+	s.setEmails = append(s.setEmails, email)
+	s.data = data
 	return nil
 }
 
 func (s *emailCacheStub) DeleteVerificationCode(ctx context.Context, email string) error {
+	s.deleteEmails = append(s.deleteEmails, email)
+	s.data = nil
 	return nil
 }
 
@@ -430,6 +460,23 @@ func TestAuthService_SendVerifyCode_EmailSuffixNotAllowed(t *testing.T) {
 	require.Equal(t, "2", appErr.Metadata["allowed_suffix_count"])
 }
 
+func TestAuthService_SendVerifyCodeWithCountdown_ReturnsDeliveryErrorAndClearsCode(t *testing.T) {
+	repo := &userRepoStub{}
+	cache := &emailCacheStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled: "true",
+		SettingKeyEmailVerifyEnabled:  "true",
+	}, cache, nil)
+
+	result, err := service.SendVerifyCodeWithCountdown(context.Background(), "user@test.com")
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "send verify code")
+	require.Contains(t, cache.setEmails, "user@test.com")
+	require.Contains(t, cache.deleteEmails, "user@test.com")
+	require.Nil(t, cache.data)
+}
+
 func TestAuthService_Register_CreateError(t *testing.T) {
 	repo := &userRepoStub{createErr: errors.New("create failed")}
 	service := newAuthService(repo, map[string]string{
@@ -449,6 +496,30 @@ func TestAuthService_Register_CreateEmailExistsRace(t *testing.T) {
 
 	_, _, err := service.Register(context.Background(), "user@test.com", "password")
 	require.ErrorIs(t, err, ErrEmailExists)
+}
+
+func TestAuthService_Register_InvitationUseFailureReturnsInvalid(t *testing.T) {
+	repo := &userRepoStub{nextID: 12}
+	redeemRepo := &registerRedeemRepoStub{
+		code: &RedeemCode{
+			ID:     99,
+			Code:   "invite-code",
+			Type:   RedeemTypeInvitation,
+			Status: StatusUnused,
+		},
+		useErr: ErrRedeemCodeUsed,
+	}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyRegistrationEnabled:   "true",
+		SettingKeyInvitationCodeEnabled: "true",
+	}, nil, nil)
+	service.redeemRepo = redeemRepo
+
+	token, user, err := service.RegisterWithVerification(context.Background(), "user@test.com", "password", "", "", "invite-code", "")
+	require.ErrorIs(t, err, ErrInvitationCodeInvalid)
+	require.Empty(t, token)
+	require.Nil(t, user)
+	require.Equal(t, 1, redeemRepo.useCalls)
 }
 
 func TestAuthService_Register_Success(t *testing.T) {

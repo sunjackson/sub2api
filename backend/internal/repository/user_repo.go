@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"entgo.io/ent/dialect"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
@@ -24,7 +25,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
-	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 )
 
@@ -48,24 +48,22 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 
 	// 统一使用 ent 的事务：保证用户与允许分组的更新原子化，
 	// 并避免基于 *sql.Tx 手动构造 ent client 导致的 ExecQuerier 断言错误。
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return err
-	}
-
 	var txClient *dbent.Client
 	txCtx := ctx
-	if err == nil {
+	var tx *dbent.Tx
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		txClient = existingTx.Client()
+	} else if startedTx, err := r.client.Tx(ctx); err == nil {
+		tx = startedTx
 		defer func() { _ = tx.Rollback() }()
 		txClient = tx.Client()
 		txCtx = dbent.NewTxContext(ctx, tx)
+	} else if errors.Is(err, dbent.ErrTxStarted) {
+		// 已处于外部事务 client 中，但 context 未携带 Tx。
+		// 复用当前 client，由调用方负责提交/回滚。
+		txClient = r.client
 	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
-		}
+		return err
 	}
 
 	releaseEmailLock, err := lockRepositoryScopedKeys(

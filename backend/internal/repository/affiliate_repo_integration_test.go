@@ -107,7 +107,7 @@ func TestAffiliateRepository_GrantRegistrationReward_IdempotentAndAudited(t *tes
 	txCtx := dbent.NewTxContext(ctx, tx)
 	client := tx.Client()
 
-	repo := NewAffiliateRepository(client, integrationDB)
+	repo := NewAffiliateRepository(client, integrationDB).(*affiliateRepository)
 
 	inviter := mustCreateUser(t, client, &service.User{
 		Email:        fmt.Sprintf("affiliate-registration-reward-inviter-%d@example.com", time.Now().UnixNano()),
@@ -192,7 +192,24 @@ LIMIT 1`, inviter.ID)
 	require.NoError(t, err)
 	require.Len(t, invitees, 1)
 	require.Equal(t, invitee.ID, invitees[0].UserID)
+	require.InDelta(t, 4.56, invitees[0].RegistrationRewardTotal, 1e-9)
+	require.InDelta(t, 0.0, invitees[0].QuotaRebateTotal, 1e-9)
 	require.InDelta(t, 4.56, invitees[0].TotalRebate, 1e-9)
+
+	appliedRebate, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 1.23, 0, nil, "", nil)
+	require.NoError(t, err)
+	require.True(t, appliedRebate)
+
+	invitees, err = repo.ListInvitees(txCtx, inviter.ID, 10)
+	require.NoError(t, err)
+	require.Len(t, invitees, 1)
+	require.InDelta(t, 4.56, invitees[0].RegistrationRewardTotal, 1e-9)
+	require.InDelta(t, 1.23, invitees[0].QuotaRebateTotal, 1e-9)
+	require.InDelta(t, 5.79, invitees[0].TotalRebate, 1e-9)
+
+	registrationRewardTotal, err := repo.SumRegistrationRewards(txCtx, inviter.ID)
+	require.NoError(t, err)
+	require.InDelta(t, 4.56, registrationRewardTotal, 1e-9)
 
 	inviteRecords, totalInviteRecords, err := repo.ListAffiliateInviteRecords(txCtx, service.AffiliateRecordFilter{
 		Page:     1,
@@ -435,6 +452,58 @@ func TestAffiliateRepository_ListRebateRecords_IncludesRedeemSourceRef(t *testin
 	require.InDelta(t, 2.5, record.RebateAmount, 1e-9)
 	require.Equal(t, "redeem", record.PaymentType)
 	require.Equal(t, "completed", record.OrderStatus)
+}
+
+func TestAffiliateRepository_AccrueQuotaWithinInviteeCap_TruncatesInsideTransaction(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	txCtx := dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+
+	repo := NewAffiliateRepository(client, integrationDB).(*affiliateRepository)
+
+	inviter := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-cap-inviter-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+	invitee := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("affiliate-cap-invitee-%d@example.com", time.Now().UnixNano()+1),
+		PasswordHash: "hash",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		Concurrency:  5,
+	})
+
+	_, err := repo.EnsureUserAffiliate(txCtx, inviter.ID)
+	require.NoError(t, err)
+	_, err = repo.EnsureUserAffiliate(txCtx, invitee.ID)
+	require.NoError(t, err)
+
+	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 95, 0, nil, "", nil)
+	require.NoError(t, err)
+	require.True(t, applied)
+
+	appliedAmount, applied, err := repo.AccrueQuotaWithinInviteeCap(txCtx, inviter.ID, invitee.ID, 20, 0, 100, nil, "CAP-REDEEM-001", nil)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.InDelta(t, 5.0, appliedAmount, 1e-9)
+
+	appliedAmount, applied, err = repo.AccrueQuotaWithinInviteeCap(txCtx, inviter.ID, invitee.ID, 20, 0, 100, nil, "CAP-REDEEM-002", nil)
+	require.NoError(t, err)
+	require.False(t, applied)
+	require.InDelta(t, 0.0, appliedAmount, 1e-9)
+
+	total := querySingleFloat(t, txCtx, client,
+		"SELECT COALESCE(SUM(amount), 0)::double precision FROM user_affiliate_ledger WHERE user_id = $1 AND source_user_id = $2 AND action = 'accrue'",
+		inviter.ID, invitee.ID)
+	require.InDelta(t, 100.0, total, 1e-9)
+
+	quota := querySingleFloat(t, txCtx, client,
+		"SELECT aff_quota::double precision FROM user_affiliates WHERE user_id = $1", inviter.ID)
+	require.InDelta(t, 100.0, quota, 1e-9)
 }
 
 func TestAffiliateRepository_TransferQuotaToBalance_EmptyQuota(t *testing.T) {

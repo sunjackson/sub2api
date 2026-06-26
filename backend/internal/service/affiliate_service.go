@@ -72,11 +72,13 @@ type AffiliateSummary struct {
 }
 
 type AffiliateInvitee struct {
-	UserID      int64      `json:"user_id"`
-	Email       string     `json:"email"`
-	Username    string     `json:"username"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	TotalRebate float64    `json:"total_rebate"`
+	UserID                  int64      `json:"user_id"`
+	Email                   string     `json:"email"`
+	Username                string     `json:"username"`
+	CreatedAt               *time.Time `json:"created_at,omitempty"`
+	RegistrationRewardTotal float64    `json:"registration_reward_total"`
+	QuotaRebateTotal        float64    `json:"quota_rebate_total"`
+	TotalRebate             float64    `json:"total_rebate"`
 }
 
 type AffiliateDetail struct {
@@ -87,6 +89,10 @@ type AffiliateDetail struct {
 	AffQuota        float64 `json:"aff_quota"`
 	AffFrozenQuota  float64 `json:"aff_frozen_quota"`
 	AffHistoryQuota float64 `json:"aff_history_quota"`
+	// RegistrationRewardTotal 是邀请新用户注册后直接发到余额的奖励总额。
+	RegistrationRewardTotal float64 `json:"registration_reward_total"`
+	// TotalReward 汇总直接余额奖励和返利额度历史，用于用户页展示总收益。
+	TotalReward float64 `json:"total_reward"`
 	// EffectiveRebateRatePercent 是当前用户作为邀请人时实际生效的返利比例：
 	// 优先用户自己的专属比例（aff_rebate_rate_percent），否则回退到全局比例。
 	// 用于在用户的 /affiliate 页面直观展示「分享后能拿到多少」。
@@ -104,6 +110,7 @@ type AffiliateRepository interface {
 	ThawFrozenQuota(ctx context.Context, userID int64) (float64, error)
 	TransferQuotaToBalance(ctx context.Context, userID int64) (float64, float64, error)
 	ListInvitees(ctx context.Context, inviterID int64, limit int) ([]AffiliateInvitee, error)
+	SumRegistrationRewards(ctx context.Context, inviterID int64) (float64, error)
 
 	// 管理端：用户级专属配置
 	UpdateUserAffCode(ctx context.Context, userID int64, newCode string) error
@@ -115,6 +122,10 @@ type AffiliateRepository interface {
 	ListAffiliateRebateRecords(ctx context.Context, filter AffiliateRecordFilter) ([]AffiliateRebateRecord, int64, error)
 	ListAffiliateTransferRecords(ctx context.Context, filter AffiliateRecordFilter) ([]AffiliateTransferRecord, int64, error)
 	GetAffiliateUserOverview(ctx context.Context, userID int64) (*AffiliateUserOverview, error)
+}
+
+type affiliateQuotaCapRepository interface {
+	AccrueQuotaWithinInviteeCap(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, perInviteeCap float64, sourceOrderID *int64, sourceRef string, sourceAmount *float64) (float64, bool, error)
 }
 
 // AffiliateAdminFilter 列表筛选条件
@@ -255,6 +266,10 @@ func (s *AffiliateService) GetAffiliateDetail(ctx context.Context, userID int64)
 	if err != nil {
 		return nil, err
 	}
+	registrationRewardTotal, err := s.repo.SumRegistrationRewards(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	return &AffiliateDetail{
 		UserID:                     summary.UserID,
 		AffCode:                    summary.AffCode,
@@ -263,6 +278,8 @@ func (s *AffiliateService) GetAffiliateDetail(ctx context.Context, userID int64)
 		AffQuota:                   summary.AffQuota,
 		AffFrozenQuota:             summary.AffFrozenQuota,
 		AffHistoryQuota:            summary.AffHistoryQuota,
+		RegistrationRewardTotal:    registrationRewardTotal,
+		TotalReward:                roundTo(summary.AffHistoryQuota+registrationRewardTotal, 8),
 		EffectiveRebateRatePercent: s.resolveRebateRatePercent(ctx, summary),
 		Invitees:                   invitees,
 	}, nil
@@ -372,20 +389,9 @@ func (s *AffiliateService) accrueInviteRebate(ctx context.Context, inviteeUserID
 		return 0, nil
 	}
 
-	// 单人上限检查：精确截断到剩余额度
+	var perInviteeCap float64
 	if s.settingService != nil {
-		if perInviteeCap := s.settingService.GetAffiliateRebatePerInviteeCap(ctx); perInviteeCap > 0 {
-			existing, err := s.repo.GetAccruedRebateFromInvitee(ctx, *inviteeSummary.InviterID, inviteeUserID)
-			if err != nil {
-				return 0, err
-			}
-			if existing >= perInviteeCap {
-				return 0, nil
-			}
-			if remaining := perInviteeCap - existing; rebate > remaining {
-				rebate = roundTo(remaining, 8)
-			}
-		}
+		perInviteeCap = s.settingService.GetAffiliateRebatePerInviteeCap(ctx)
 	}
 
 	var freezeHours int
@@ -393,7 +399,31 @@ func (s *AffiliateService) accrueInviteRebate(ctx context.Context, inviteeUserID
 		freezeHours = s.settingService.GetAffiliateRebateFreezeHours(ctx)
 	}
 
-	applied, err := s.repo.AccrueQuota(ctx, *inviteeSummary.InviterID, inviteeUserID, rebate, freezeHours, sourceOrderID, sourceRef, sourceAmount)
+	inviterID := *inviteeSummary.InviterID
+	if cappedRepo, ok := s.repo.(affiliateQuotaCapRepository); ok {
+		appliedAmount, applied, err := cappedRepo.AccrueQuotaWithinInviteeCap(ctx, inviterID, inviteeUserID, rebate, freezeHours, perInviteeCap, sourceOrderID, sourceRef, sourceAmount)
+		if err != nil {
+			return 0, err
+		}
+		if !applied {
+			return 0, nil
+		}
+		return appliedAmount, nil
+	}
+
+	if perInviteeCap > 0 {
+		existing, err := s.repo.GetAccruedRebateFromInvitee(ctx, inviterID, inviteeUserID)
+		if err != nil {
+			return 0, err
+		}
+		if existing >= perInviteeCap {
+			return 0, nil
+		}
+		if remaining := perInviteeCap - existing; rebate > remaining {
+			rebate = roundTo(remaining, 8)
+		}
+	}
+	applied, err := s.repo.AccrueQuota(ctx, inviterID, inviteeUserID, rebate, freezeHours, sourceOrderID, sourceRef, sourceAmount)
 	if err != nil {
 		return 0, err
 	}

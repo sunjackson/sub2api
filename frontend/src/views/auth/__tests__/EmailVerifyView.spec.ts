@@ -250,6 +250,7 @@ describe('EmailVerifyView', () => {
       token_field: 'pending_oauth_token',
       provider: 'oidc',
       redirect: '/profile/security',
+      aff_code: 'AFF123',
     }
     getPublicSettingsMock.mockResolvedValue({
       turnstile_enabled: false,
@@ -288,6 +289,7 @@ describe('EmailVerifyView', () => {
       token_field: 'pending_oauth_token',
       provider: 'oidc',
       redirect: '/profile/security',
+      aff_code: 'AFF123',
     })
     expect(pushMock).toHaveBeenCalledWith('/auth/oidc/callback')
     expect(showErrorMock).not.toHaveBeenCalled()
@@ -299,6 +301,7 @@ describe('EmailVerifyView', () => {
       token_field: 'pending_auth_token',
       provider: 'wechat',
       redirect: '/profile',
+      aff_code: 'AFF123',
     }
     sessionStorage.setItem(
       'register_data',
@@ -356,6 +359,7 @@ describe('EmailVerifyView', () => {
       token_field: 'pending_oauth_token',
       provider: 'oidc',
       redirect: '/profile/security',
+      aff_code: 'AFF123',
     }
     getPublicSettingsMock.mockResolvedValue({
       turnstile_enabled: false,
@@ -400,12 +404,14 @@ describe('EmailVerifyView', () => {
       email: 'fresh@example.com',
       password: 'secret-123',
       verify_code: '123456',
+      aff_code: 'AFF123',
     })
     expect(setPendingAuthSessionMock).toHaveBeenCalledWith({
       token: '',
       token_field: 'pending_oauth_token',
       provider: 'oidc',
       redirect: '/profile/security',
+      aff_code: 'AFF123',
     })
     expect(pushMock).toHaveBeenCalledWith('/auth/oidc/callback')
     expect(setTokenMock).not.toHaveBeenCalled()

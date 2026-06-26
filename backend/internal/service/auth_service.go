@@ -220,13 +220,36 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		Status:       StatusActive,
 	}
 
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		// 优先检查邮箱冲突错误（竞态条件下可能发生）
-		if errors.Is(err, ErrEmailExists) {
-			return "", nil, ErrEmailExists
+	if invitationRedeemCode != nil && s.entClient != nil {
+		tx, err := s.entClient.Tx(ctx)
+		if err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to begin transaction for email registration: %v", err)
+			return "", nil, ErrServiceUnavailable
 		}
-		logger.LegacyPrintf("service.auth", "[Auth] Database error creating user: %v", err)
-		return "", nil, ErrServiceUnavailable
+		defer func() { _ = tx.Rollback() }()
+		txCtx := dbent.NewTxContext(ctx, tx)
+
+		if err := s.createRegistrationUser(txCtx, user); err != nil {
+			return "", nil, err
+		}
+		if err := s.redeemRepo.Use(txCtx, invitationRedeemCode.ID, user.ID); err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to consume invitation code for user %d: %v", user.ID, err)
+			return "", nil, ErrInvitationCodeInvalid
+		}
+		if err := tx.Commit(); err != nil {
+			logger.LegacyPrintf("service.auth", "[Auth] Failed to commit email registration transaction: %v", err)
+			return "", nil, ErrServiceUnavailable
+		}
+	} else {
+		if err := s.createRegistrationUser(ctx, user); err != nil {
+			return "", nil, err
+		}
+		if invitationRedeemCode != nil {
+			if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
+				logger.LegacyPrintf("service.auth", "[Auth] Failed to consume invitation code for user %d: %v", user.ID, err)
+				return "", nil, ErrInvitationCodeInvalid
+			}
+		}
 	}
 	s.postAuthUserBootstrap(ctx, user, "email", true)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
@@ -244,13 +267,6 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		}
 	}
 
-	// 标记邀请码为已使用（如果使用了邀请码）
-	if invitationRedeemCode != nil {
-		if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
-			// 邀请码标记失败不影响注册，只记录日志
-			logger.LegacyPrintf("service.auth", "[Auth] Failed to mark invitation code as used for user %d: %v", user.ID, err)
-		}
-	}
 	// 应用优惠码（如果提供且功能已启用）
 	if promoCode != "" && s.promoService != nil && s.settingService != nil && s.settingService.IsPromoCodeEnabled(ctx) {
 		if err := s.promoService.ApplyPromoCode(ctx, user.ID, promoCode); err != nil {
@@ -271,6 +287,18 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	}
 
 	return token, user, nil
+}
+
+func (s *AuthService) createRegistrationUser(ctx context.Context, user *User) error {
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		// 优先检查邮箱冲突错误（竞态条件下可能发生）
+		if errors.Is(err, ErrEmailExists) {
+			return ErrEmailExists
+		}
+		logger.LegacyPrintf("service.auth", "[Auth] Database error creating user: %v", err)
+		return ErrServiceUnavailable
+	}
+	return nil
 }
 
 // SendVerifyCodeResult 发送验证码返回结果
@@ -316,9 +344,9 @@ func (s *AuthService) SendVerifyCode(ctx context.Context, email string, locale .
 	return s.emailService.SendVerifyCode(ctx, email, siteName, firstEmailLocale(locale))
 }
 
-// SendVerifyCodeAsync 异步发送邮箱验证码并返回倒计时
-func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, locale ...string) (*SendVerifyCodeResult, error) {
-	logger.LegacyPrintf("service.auth", "[Auth] SendVerifyCodeAsync called for email: %s", email)
+// SendVerifyCodeWithCountdown 同步发送邮箱验证码并返回前端倒计时。
+func (s *AuthService) SendVerifyCodeWithCountdown(ctx context.Context, email string, locale ...string) (*SendVerifyCodeResult, error) {
+	logger.LegacyPrintf("service.auth", "[Auth] SendVerifyCodeWithCountdown called for email: %s", email)
 
 	// 检查是否开放注册（默认关闭）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
@@ -344,10 +372,9 @@ func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, loc
 		return nil, ErrEmailExists
 	}
 
-	// 检查邮件队列服务是否配置
-	if s.emailQueueService == nil {
-		logger.LegacyPrintf("service.auth", "%s", "[Auth] Email queue service not configured")
-		return nil, errors.New("email queue service not configured")
+	if s.emailService == nil {
+		logger.LegacyPrintf("service.auth", "%s", "[Auth] Email service not configured")
+		return nil, errors.New("email service not configured")
 	}
 
 	// 获取网站名称
@@ -356,17 +383,23 @@ func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, loc
 		siteName = s.settingService.GetSiteName(ctx)
 	}
 
-	// 异步发送
-	logger.LegacyPrintf("service.auth", "[Auth] Enqueueing verify code for: %s", email)
-	if err := s.emailQueueService.EnqueueVerifyCode(email, siteName, firstEmailLocale(locale)); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to enqueue: %v", err)
-		return nil, fmt.Errorf("enqueue verify code: %w", err)
+	logger.LegacyPrintf("service.auth", "[Auth] Sending verify code for: %s", email)
+	if err := s.emailService.SendVerifyCode(ctx, email, siteName, firstEmailLocale(locale)); err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] Failed to send verify code: %v", err)
+		return nil, fmt.Errorf("send verify code: %w", err)
 	}
 
-	logger.LegacyPrintf("service.auth", "[Auth] Verify code enqueued successfully for: %s", email)
+	logger.LegacyPrintf("service.auth", "[Auth] Verify code sent successfully for: %s", email)
 	return &SendVerifyCodeResult{
 		Countdown: 60, // 60秒倒计时
 	}, nil
+}
+
+// SendVerifyCodeAsync 保留给旧调用方；当前实现为同步发送。
+//
+// Deprecated: use SendVerifyCodeWithCountdown.
+func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, locale ...string) (*SendVerifyCodeResult, error) {
+	return s.SendVerifyCodeWithCountdown(ctx, email, locale...)
 }
 
 // VerifyTurnstileForRegister 在注册场景下验证 Turnstile。

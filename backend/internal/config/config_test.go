@@ -30,6 +30,21 @@ func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	}
 }
 
+func TestLoadBackupOnlineRestoreConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Backup.AllowOnlineRestore)
+
+	resetViperWithJWTSecret(t)
+	t.Setenv("BACKUP_ALLOW_ONLINE_RESTORE", "true")
+
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Backup.AllowOnlineRestore)
+}
+
 func TestNormalizeRunMode(t *testing.T) {
 	tests := []struct {
 		input    string

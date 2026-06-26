@@ -23,6 +23,7 @@ interface PendingAuthSessionSummary {
   token_field: PendingAuthTokenField
   provider: string
   redirect?: string
+  aff_code?: string
   adoption_required?: boolean
   suggested_display_name?: string
   suggested_avatar_url?: string
@@ -50,6 +51,7 @@ function getPersistedPendingAuthSession(): PendingAuthSessionSummary | null {
       token_field: normalizePendingAuthTokenField(parsed?.token_field),
       provider,
       redirect: typeof parsed?.redirect === 'string' ? parsed.redirect : undefined,
+      aff_code: typeof parsed?.aff_code === 'string' ? parsed.aff_code : undefined,
       adoption_required: typeof parsed?.adoption_required === 'boolean' ? parsed.adoption_required : undefined,
       suggested_display_name: typeof parsed?.suggested_display_name === 'string' ? parsed.suggested_display_name : undefined,
       suggested_avatar_url: typeof parsed?.suggested_avatar_url === 'string' ? parsed.suggested_avatar_url : undefined

@@ -36,6 +36,7 @@ var (
 	ErrRestoreInProgress     = infraerrors.Conflict("RESTORE_IN_PROGRESS", "a restore is already in progress")
 	ErrBackupRecordsCorrupt  = infraerrors.InternalServer("BACKUP_RECORDS_CORRUPT", "backup records data is corrupted")
 	ErrBackupS3ConfigCorrupt = infraerrors.InternalServer("BACKUP_S3_CONFIG_CORRUPT", "backup S3 config data is corrupted")
+	ErrOnlineRestoreDisabled = infraerrors.Conflict("ONLINE_RESTORE_DISABLED", "online database restore is disabled; stop the application and restore offline, or explicitly set backup.allow_online_restore=true")
 )
 
 // ─── 接口定义 ───
@@ -107,6 +108,7 @@ type BackupRecord struct {
 type BackupService struct {
 	settingRepo  SettingRepository
 	dbCfg        *config.DatabaseConfig
+	backupCfg    config.BackupConfig
 	encryptor    SecretEncryptor
 	storeFactory BackupObjectStoreFactory
 	dumper       DBDumper
@@ -142,6 +144,7 @@ func NewBackupService(
 	return &BackupService{
 		settingRepo:  settingRepo,
 		dbCfg:        &cfg.Database,
+		backupCfg:    cfg.Backup,
 		encryptor:    encryptor,
 		storeFactory: storeFactory,
 		dumper:       dumper,
@@ -709,6 +712,10 @@ func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupOb
 
 // RestoreBackup 从 S3 下载备份并流式恢复到数据库
 func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) error {
+	if err := s.ensureOnlineRestoreAllowed(); err != nil {
+		return err
+	}
+
 	s.opMu.Lock()
 	if s.restoring {
 		s.opMu.Unlock()
@@ -765,6 +772,9 @@ func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) erro
 func (s *BackupService) StartRestore(ctx context.Context, backupID string) (*BackupRecord, error) {
 	if s.shuttingDown.Load() {
 		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
+	}
+	if err := s.ensureOnlineRestoreAllowed(); err != nil {
+		return nil, err
 	}
 
 	s.opMu.Lock()
@@ -828,6 +838,13 @@ func (s *BackupService) StartRestore(ctx context.Context, backupID string) (*Bac
 	}()
 
 	return &result, nil
+}
+
+func (s *BackupService) ensureOnlineRestoreAllowed() error {
+	if s.backupCfg.AllowOnlineRestore {
+		return nil
+	}
+	return ErrOnlineRestoreDisabled
 }
 
 // executeRestore 后台执行恢复

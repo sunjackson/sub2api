@@ -65,9 +65,9 @@ func TestApplyMigrationsFS_NonTransactionalMigration(t *testing.T) {
 	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
 		WithArgs("001_add_idx_notx.sql", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+	mock.ExpectQuery("SELECT pg_advisory_unlock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	fsys := fstest.MapFS{
 		"001_add_idx_notx.sql": &fstest.MapFile{
@@ -96,9 +96,9 @@ func TestApplyMigrationsFS_NonTransactionalMigration_MultiStatements(t *testing.
 	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
 		WithArgs("001_add_multi_idx_notx.sql", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+	mock.ExpectQuery("SELECT pg_advisory_unlock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	fsys := fstest.MapFS{
 		"001_add_multi_idx_notx.sql": &fstest.MapFile{
@@ -127,9 +127,9 @@ func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_FailsFastOnDup
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery("SELECT out_trade_no, COUNT\\(\\*\\) AS duplicate_count FROM payment_orders").
 		WillReturnRows(sqlmock.NewRows([]string{"out_trade_no", "duplicate_count"}).AddRow("dup-out-trade-no", 2))
-	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+	mock.ExpectQuery("SELECT pg_advisory_unlock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	fsys := fstest.MapFS{
 		"120_enforce_payment_orders_out_trade_no_unique_notx.sql": &fstest.MapFile{
@@ -173,9 +173,9 @@ func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_DropsInvalidIn
 	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
 		WithArgs("120_enforce_payment_orders_out_trade_no_unique_notx.sql", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+	mock.ExpectQuery("SELECT pg_advisory_unlock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	fsys := fstest.MapFS{
 		"120_enforce_payment_orders_out_trade_no_unique_notx.sql": &fstest.MapFile{
@@ -213,9 +213,9 @@ func TestApplyMigrationsFS_SchedulerOutboxPendingDedupKeyMigration_DropsInvalidI
 	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
 		WithArgs("153_scheduler_outbox_pending_dedup_key_index_notx.sql", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+	mock.ExpectQuery("SELECT pg_advisory_unlock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	fsys := fstest.MapFS{
 		"153_scheduler_outbox_pending_dedup_key_index_notx.sql": &fstest.MapFile{
@@ -248,9 +248,9 @@ func TestApplyMigrationsFS_TransactionalMigration(t *testing.T) {
 		WithArgs("001_add_col.sql", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
-	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+	mock.ExpectQuery("SELECT pg_advisory_unlock\\(\\$1\\)").
 		WithArgs(migrationsAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))
 
 	fsys := fstest.MapFS{
 		"001_add_col.sql": &fstest.MapFile{

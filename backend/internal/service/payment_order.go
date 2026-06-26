@@ -117,7 +117,7 @@ func (s *PaymentService) validateOrderInput(ctx context.Context, req CreateOrder
 		return nil, infraerrors.Forbidden("BALANCE_PAYMENT_DISABLED", "balance recharge has been disabled")
 	}
 	if req.OrderType == payment.OrderTypeSubscription {
-		return s.validateSubOrder(ctx, req)
+		return nil, infraerrors.Forbidden("SUBSCRIPTION_PURCHASE_DISABLED", "subscription purchases are disabled")
 	}
 	if math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) || req.Amount <= 0 {
 		return nil, infraerrors.BadRequest("INVALID_AMOUNT", "amount must be a positive number")
@@ -153,6 +153,11 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	release, err := lockPaymentScopedKeys(ctx, tx.Client(), paymentOrderUserLockKey(req.UserID))
+	if err != nil {
+		return nil, fmt.Errorf("lock user payment order creation: %w", err)
+	}
+	defer release()
 	if err := s.checkPendingLimit(ctx, tx, req.UserID, cfg.MaxPendingOrders); err != nil {
 		return nil, err
 	}
@@ -325,7 +330,19 @@ func (s *PaymentService) checkDailyLimit(ctx context.Context, tx *dbent.Tx, user
 		return nil
 	}
 	ts := psStartOfDayUTC(time.Now())
-	orders, err := tx.PaymentOrder.Query().Where(paymentorder.UserIDEQ(userID), paymentorder.StatusIn(OrderStatusPaid, OrderStatusRecharging, OrderStatusCompleted), paymentorder.PaidAtGTE(ts)).All(ctx)
+	orders, err := tx.PaymentOrder.Query().Where(
+		paymentorder.UserIDEQ(userID),
+		paymentorder.Or(
+			paymentorder.And(
+				paymentorder.StatusIn(OrderStatusPaid, OrderStatusRecharging, OrderStatusCompleted),
+				paymentorder.PaidAtGTE(ts),
+			),
+			paymentorder.And(
+				paymentorder.StatusEQ(OrderStatusPending),
+				paymentorder.CreatedAtGTE(ts),
+			),
+		),
+	).All(ctx)
 	if err != nil {
 		return fmt.Errorf("query daily usage: %w", err)
 	}

@@ -1132,7 +1132,10 @@ export default {
       availableQuota: '可转返利额度',
       frozenQuota: '冻结中',
       frozenQuotaHint: '新产生的返利正在冻结期中',
-      totalQuota: '历史返利额度'
+      registrationReward: '注册奖励已发放',
+      registrationRewardHint: '已直接进入账户余额',
+      totalQuota: '历史返利额度',
+      totalReward: '累计奖励'
     },
     transfer: {
       title: '返利额度转余额',
@@ -1149,6 +1152,9 @@ export default {
         email: '邮箱',
         username: '用户名',
         rebate: '返利明细',
+        registrationReward: '注册奖励',
+        quotaRebate: '充值/兑换返利',
+        totalReward: '累计奖励',
         joinedAt: '注册时间'
       }
     },
@@ -1156,7 +1162,7 @@ export default {
       title: '使用说明',
       line1: '将邀请码或邀请链接分享给新用户。',
       line2: '被邀请用户充值后，你可获得 {rate} 的返利额度。',
-      line3: '返利额度可随时转入账户余额。',
+      line3: '邀请注册奖励会直接发放到账户余额，充值/兑换返利额度可转入余额。',
       line4: '新产生的返利需要经过冻结期后才能提现。'
     }
   },

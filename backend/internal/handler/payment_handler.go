@@ -44,41 +44,12 @@ func (h *PaymentHandler) GetPaymentConfig(c *gin.Context) {
 	response.Success(c, cfg)
 }
 
-// GetPlans returns subscription plans available for sale.
+// GetPlans returns no user-facing subscription packages.
 // GET /api/v1/payment/plans
 func (h *PaymentHandler) GetPlans(c *gin.Context) {
-	plans, err := h.configService.ListPlansForSale(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	// Enrich plans with group platform for frontend color coding
-	type planWithPlatform struct {
-		ID            int64    `json:"id"`
-		GroupID       int64    `json:"group_id"`
-		GroupPlatform string   `json:"group_platform"`
-		Name          string   `json:"name"`
-		Description   string   `json:"description"`
-		Price         float64  `json:"price"`
-		OriginalPrice *float64 `json:"original_price,omitempty"`
-		ValidityDays  int      `json:"validity_days"`
-		ValidityUnit  string   `json:"validity_unit"`
-		Features      string   `json:"features"`
-		ProductName   string   `json:"product_name"`
-		ForSale       bool     `json:"for_sale"`
-		SortOrder     int      `json:"sort_order"`
-	}
-	platformMap := h.configService.GetGroupPlatformMap(c.Request.Context(), plans)
-	result := make([]planWithPlatform, 0, len(plans))
-	for _, p := range plans {
-		result = append(result, planWithPlatform{
-			ID: int64(p.ID), GroupID: p.GroupID, GroupPlatform: platformMap[p.GroupID],
-			Name: p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
-			ValidityDays: p.ValidityDays, ValidityUnit: p.ValidityUnit, Features: p.Features,
-			ProductName: p.ProductName, ForSale: p.ForSale, SortOrder: p.SortOrder,
-		})
-	}
-	response.Success(c, result)
+	// User-facing monthly subscription packages are intentionally hidden from the recharge flow.
+	// Admin plan management and manual subscription assignment remain available.
+	response.Success(c, []checkoutPlan{})
 }
 
 // GetChannels returns enabled payment channels.
@@ -93,7 +64,7 @@ func (h *PaymentHandler) GetChannels(c *gin.Context) {
 }
 
 // GetCheckoutInfo returns all data the payment page needs in a single call:
-// payment methods with limits, subscription plans, and configuration.
+// payment methods with limits and recharge configuration.
 // GET /api/v1/payment/checkout-info
 func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -112,23 +83,9 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		return
 	}
 
-	// Fetch plans with group info
-	plans, _ := h.configService.ListPlansForSale(ctx)
-	groupInfo := h.configService.GetGroupInfoMap(ctx, plans)
-	planList := make([]checkoutPlan, 0, len(plans))
-	for _, p := range plans {
-		gi := groupInfo[p.GroupID]
-		planList = append(planList, checkoutPlan{
-			ID: int64(p.ID), GroupID: p.GroupID,
-			GroupPlatform: gi.Platform, GroupName: gi.Name,
-			RateMultiplier: gi.RateMultiplier, DailyLimitUSD: gi.DailyLimitUSD,
-			WeeklyLimitUSD: gi.WeeklyLimitUSD, MonthlyLimitUSD: gi.MonthlyLimitUSD,
-			ModelScopes: gi.ModelScopes,
-			Name:        p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
-			ValidityDays: p.ValidityDays, ValidityUnit: p.ValidityUnit, Features: parseFeatures(p.Features),
-			ProductName: p.ProductName,
-		})
-	}
+	// User-facing monthly subscription packages are intentionally hidden from the recharge flow.
+	// Keep the response shape stable while returning no purchasable plans.
+	planList := make([]checkoutPlan, 0)
 
 	response.Success(c, checkoutInfoResponse{
 		Methods:                   limitsResp.Methods,
@@ -177,23 +134,6 @@ type checkoutPlan struct {
 	ValidityUnit    string   `json:"validity_unit"`
 	Features        []string `json:"features"`
 	ProductName     string   `json:"product_name"`
-}
-
-// parseFeatures splits a newline-separated features string into a string slice.
-func parseFeatures(raw string) []string {
-	if raw == "" {
-		return []string{}
-	}
-	var out []string
-	for _, line := range strings.Split(raw, "\n") {
-		if s := strings.TrimSpace(line); s != "" {
-			out = append(out, s)
-		}
-	}
-	if out == nil {
-		return []string{}
-	}
-	return out
 }
 
 // GetLimits returns per-payment-type limits derived from enabled provider instances.

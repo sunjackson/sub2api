@@ -6,6 +6,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -94,7 +95,23 @@ func (r *redeemCodeRepository) GetByCode(ctx context.Context, code string) (*ser
 }
 
 func (r *redeemCodeRepository) Delete(ctx context.Context, id int64) error {
-	_, err := r.client.RedeemCode.Delete().Where(redeemcode.IDEQ(id)).Exec(ctx)
+	affected, err := r.client.RedeemCode.Delete().
+		Where(redeemcode.IDEQ(id), redeemcode.StatusNEQ(service.StatusUsed)).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		exists, existsErr := r.client.RedeemCode.Query().
+			Where(redeemcode.IDEQ(id)).
+			Exist(ctx)
+		if existsErr != nil {
+			return existsErr
+		}
+		if exists {
+			return service.ErrRedeemCodeUsed
+		}
+	}
 	return err
 }
 
@@ -289,7 +306,11 @@ func (r *redeemCodeRepository) batchUpdate(ctx context.Context, client *dbent.Cl
 		}
 	}
 
-	up := client.RedeemCode.Update().Where(redeemcode.IDIn(ids...))
+	predicates := []predicate.RedeemCode{redeemcode.IDIn(ids...)}
+	if fields.TouchesUsedSensitiveFields() {
+		predicates = append(predicates, redeemcode.StatusNEQ(service.StatusUsed))
+	}
+	up := client.RedeemCode.Update().Where(predicates...)
 	if fields.Status != nil {
 		up.SetStatus(*fields.Status)
 	}

@@ -139,6 +139,23 @@ func (s *RedeemCodeRepoSuite) TestDelete() {
 	s.Require().ErrorIs(err, service.ErrRedeemCodeNotFound)
 }
 
+func (s *RedeemCodeRepoSuite) TestDelete_RejectsUsedCode() {
+	code := &service.RedeemCode{
+		Code:   "DELETE-USED",
+		Type:   service.RedeemTypeBalance,
+		Value:  0,
+		Status: service.StatusUsed,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, code))
+
+	err := s.repo.Delete(s.ctx, code.ID)
+	s.Require().ErrorIs(err, service.ErrRedeemCodeUsed)
+
+	got, getErr := s.repo.GetByID(s.ctx, code.ID)
+	s.Require().NoError(getErr)
+	s.Require().Equal(service.StatusUsed, got.Status)
+}
+
 // --- List / ListWithFilters ---
 
 func (s *RedeemCodeRepoSuite) TestList() {

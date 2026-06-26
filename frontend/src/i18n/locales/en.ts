@@ -1128,7 +1128,10 @@ export default {
       availableQuota: 'Available Rebate Quota',
       frozenQuota: 'Frozen',
       frozenQuotaHint: 'Recently earned rebates pending release',
-      totalQuota: 'Historical Rebate Quota'
+      registrationReward: 'Signup Rewards Paid',
+      registrationRewardHint: 'Credited directly to balance',
+      totalQuota: 'Historical Rebate Quota',
+      totalReward: 'Total Rewards'
     },
     transfer: {
       title: 'Transfer Rebate Quota',
@@ -1145,6 +1148,9 @@ export default {
         email: 'Email',
         username: 'Username',
         rebate: 'Rebate',
+        registrationReward: 'Signup Reward',
+        quotaRebate: 'Recharge/Redeem Rebate',
+        totalReward: 'Total Reward',
         joinedAt: 'Joined At'
       }
     },
@@ -1152,7 +1158,7 @@ export default {
       title: 'How It Works',
       line1: 'Share your affiliate code or invite link with new users.',
       line2: 'When invitees recharge, you receive {rate} of the recharge as rebate quota.',
-      line3: 'Transfer rebate quota to balance at any time.',
+      line3: 'Signup rewards are credited directly to balance; recharge/redeem rebate quota can be transferred to balance.',
       line4: 'Newly earned rebates may have a waiting period before they can be transferred.'
     }
   },

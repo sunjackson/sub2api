@@ -3312,12 +3312,21 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 }
 
 func (s *adminServiceImpl) DeleteRedeemCode(ctx context.Context, id int64) error {
+	if _, err := s.ensureRedeemCodeMutable(ctx, id); err != nil {
+		if errors.Is(err, ErrRedeemCodeNotFound) {
+			return nil
+		}
+		return err
+	}
 	return s.redeemCodeRepo.Delete(ctx, id)
 }
 
 func (s *adminServiceImpl) BatchDeleteRedeemCodes(ctx context.Context, ids []int64) (int64, error) {
 	var deleted int64
 	for _, id := range ids {
+		if _, err := s.ensureRedeemCodeMutable(ctx, id); err != nil {
+			continue
+		}
 		if err := s.redeemCodeRepo.Delete(ctx, id); err == nil {
 			deleted++
 		}
@@ -3326,13 +3335,25 @@ func (s *adminServiceImpl) BatchDeleteRedeemCodes(ctx context.Context, ids []int
 }
 
 func (s *adminServiceImpl) ExpireRedeemCode(ctx context.Context, id int64) (*RedeemCode, error) {
+	code, err := s.ensureRedeemCodeMutable(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	status := StatusExpired
+	if _, err := s.redeemCodeRepo.BatchUpdate(ctx, []int64{id}, RedeemCodeBatchUpdateFields{Status: &status}); err != nil {
+		return nil, err
+	}
+	code.Status = StatusExpired
+	return code, nil
+}
+
+func (s *adminServiceImpl) ensureRedeemCodeMutable(ctx context.Context, id int64) (*RedeemCode, error) {
 	code, err := s.redeemCodeRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	code.Status = StatusExpired
-	if err := s.redeemCodeRepo.Update(ctx, code); err != nil {
-		return nil, err
+	if code.IsUsed() {
+		return nil, infraerrors.Conflict("REDEEM_CODE_USED_IMMUTABLE", "cannot delete or expire used redeem code")
 	}
 	return code, nil
 }

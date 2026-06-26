@@ -204,12 +204,19 @@ func (m *mockObjectStore) HeadBucket(_ context.Context) error {
 }
 
 func newTestBackupService(repo *mockSettingRepo, dumper DBDumper, store *mockObjectStore) *BackupService {
+	return newTestBackupServiceWithOnlineRestore(repo, dumper, store, true)
+}
+
+func newTestBackupServiceWithOnlineRestore(repo *mockSettingRepo, dumper DBDumper, store *mockObjectStore, allowOnlineRestore bool) *BackupService {
 	cfg := &config.Config{
 		Database: config.DatabaseConfig{
 			Host:   "localhost",
 			Port:   5432,
 			User:   "test",
 			DBName: "testdb",
+		},
+		Backup: config.BackupConfig{
+			AllowOnlineRestore: allowOnlineRestore,
 		},
 	}
 	factory := func(_ context.Context, _ *BackupS3Config) (BackupObjectStore, error) {
@@ -412,6 +419,22 @@ func TestBackupService_RestoreBackup_Streaming(t *testing.T) {
 
 	// 验证 psql 收到的数据是否与原始 dump 内容一致
 	require.Equal(t, dumpContent, string(dumper.restored))
+}
+
+func TestBackupService_RestoreBackup_OnlineRestoreDisabled(t *testing.T) {
+	repo := newMockSettingRepo()
+	seedS3Config(t, repo)
+
+	dumper := &mockDumper{dumpData: []byte("-- PostgreSQL dump\nSELECT 1;\n")}
+	store := newMockObjectStore()
+	svc := newTestBackupServiceWithOnlineRestore(repo, dumper, store, false)
+
+	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	require.NoError(t, err)
+
+	err = svc.RestoreBackup(context.Background(), record.ID)
+	require.ErrorIs(t, err, ErrOnlineRestoreDisabled)
+	require.Empty(t, dumper.restored)
 }
 
 func TestBackupService_RestoreBackup_NotCompleted(t *testing.T) {
@@ -700,4 +723,21 @@ func TestStartRestore_Async(t *testing.T) {
 	final, err := svc.GetBackupRecord(context.Background(), record.ID)
 	require.NoError(t, err)
 	require.Equal(t, "completed", final.RestoreStatus)
+}
+
+func TestStartRestore_OnlineRestoreDisabled(t *testing.T) {
+	repo := newMockSettingRepo()
+	seedS3Config(t, repo)
+
+	dumper := &mockDumper{dumpData: []byte("-- PostgreSQL dump\nSELECT 1;\n")}
+	store := newMockObjectStore()
+	svc := newTestBackupServiceWithOnlineRestore(repo, dumper, store, false)
+
+	record, err := svc.CreateBackup(context.Background(), "manual", 14)
+	require.NoError(t, err)
+
+	restored, err := svc.StartRestore(context.Background(), record.ID)
+	require.ErrorIs(t, err, ErrOnlineRestoreDisabled)
+	require.Nil(t, restored)
+	require.False(t, svc.restoring)
 }

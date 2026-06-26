@@ -6,8 +6,11 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,6 +112,71 @@ func TestCreateOrderInTx_WritesProviderSnapshot(t *testing.T) {
 	require.NotContains(t, order.ProviderSnapshot, "secretKey")
 	require.NotContains(t, order.ProviderSnapshot, "supported_types")
 	require.NotContains(t, order.ProviderSnapshot, "instance_name")
+}
+
+func TestCreateOrderInTx_DailyLimitIncludesPendingOrders(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+
+	user, err := client.User.Create().
+		SetEmail("daily-pending@example.com").
+		SetPasswordHash("hash").
+		SetUsername("daily-pending-user").
+		Save(ctx)
+	require.NoError(t, err)
+
+	_, err = client.PaymentOrder.Create().
+		SetUserID(user.ID).
+		SetUserEmail(user.Email).
+		SetUserName(user.Username).
+		SetAmount(40).
+		SetPayAmount(40).
+		SetFeeRate(0).
+		SetRechargeCode("DAILY-PENDING-EXISTING").
+		SetOutTradeNo("sub2_daily_pending_existing").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("").
+		SetOrderType(payment.OrderTypeBalance).
+		SetStatus(OrderStatusPending).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("app.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+
+	svc := &PaymentService{entClient: client}
+	_, err = svc.createOrderInTx(
+		ctx,
+		CreateOrderRequest{
+			UserID:      user.ID,
+			PaymentType: payment.TypeAlipay,
+			OrderType:   payment.OrderTypeBalance,
+			ClientIP:    "127.0.0.1",
+			SrcHost:     "app.example.com",
+		},
+		&User{
+			ID:       user.ID,
+			Email:    user.Email,
+			Username: user.Username,
+		},
+		nil,
+		&PaymentConfig{
+			MaxPendingOrders: 3,
+			DailyLimit:       50,
+			OrderTimeoutMin:  30,
+		},
+		20,
+		20,
+		0,
+		20,
+		nil,
+	)
+	require.Error(t, err)
+	require.Equal(t, "DAILY_LIMIT_EXCEEDED", infraerrors.Reason(err))
+
+	count, countErr := client.PaymentOrder.Query().Where(paymentorder.UserIDEQ(user.ID)).Count(ctx)
+	require.NoError(t, countErr)
+	require.Equal(t, 1, count)
 }
 
 func TestBuildPaymentOrderProviderSnapshot_UsesWxpayJSAPIAppIDForOpenIDOrders(t *testing.T) {

@@ -220,6 +220,7 @@ describe('useAuthStore', () => {
           token_field: 'pending_auth_token',
           provider: 'wechat',
           redirect: '/profile',
+          aff_code: 'AFF123',
         })
       )
 
@@ -232,6 +233,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_auth_token',
         provider: 'wechat',
         redirect: '/profile',
+        aff_code: 'AFF123',
       })
     })
   })
@@ -245,6 +247,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_auth_token',
         provider: 'wechat',
         redirect: '/profile',
+        aff_code: 'AFF123',
       })
 
       expect(store.hasPendingAuthSession).toBe(true)
@@ -253,6 +256,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_auth_token',
         provider: 'wechat',
         redirect: '/profile',
+        aff_code: 'AFF123',
       })
 
       store.clearPendingAuthSession()
@@ -269,6 +273,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_oauth_token',
         provider: 'oidc',
         redirect: '/welcome',
+        aff_code: 'AFF456',
         adoption_required: true,
         suggested_display_name: 'OIDC Nick'
       })
@@ -284,6 +289,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_oauth_token',
         provider: 'oidc',
         redirect: '/welcome',
+        aff_code: 'AFF456',
         adoption_required: true,
         suggested_display_name: 'OIDC Nick',
         suggested_avatar_url: undefined
@@ -297,6 +303,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_auth_token',
         provider: 'oidc',
         redirect: '/register',
+        aff_code: 'AFF789',
       })
       mockRegister.mockRejectedValue(new Error('Register failed'))
 
@@ -310,6 +317,7 @@ describe('useAuthStore', () => {
         token_field: 'pending_auth_token',
         provider: 'oidc',
         redirect: '/register',
+        aff_code: 'AFF789',
       })
     })
   })

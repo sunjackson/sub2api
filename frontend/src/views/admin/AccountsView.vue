@@ -1884,10 +1884,34 @@ const buildBulkEditFilterSnapshot = () => {
   }
 }
 
+const accountPlatforms = new Set<AccountPlatform>(['anthropic', 'openai', 'gemini', 'antigravity'])
+const accountTypes = new Set<AccountType>(['oauth', 'setup-token', 'apikey', 'upstream', 'bedrock', 'service_account'])
+
+const normalizeExplicitFilterValue = <T extends string>(value: unknown, allowed: Set<T>): T[] => {
+  if (typeof value !== 'string') return []
+  const normalized = value.trim()
+  return allowed.has(normalized as T) ? [normalized as T] : []
+}
+
 const collectSelectionMetadata = (rows: Account[]) => {
   const selectedPlatforms = Array.from(new Set(rows.map(account => account.platform)))
   const selectedTypes = Array.from(new Set(rows.map(account => account.type)))
   return { selectedPlatforms, selectedTypes }
+}
+
+const collectFilteredTargetMetadata = (
+  rows: Account[],
+  total: number,
+  filters: ReturnType<typeof buildBulkEditFilterSnapshot>
+) => {
+  if (total <= rows.length) {
+    return collectSelectionMetadata(rows)
+  }
+
+  return {
+    selectedPlatforms: normalizeExplicitFilterValue(filters.platform, accountPlatforms),
+    selectedTypes: normalizeExplicitFilterValue(filters.type, accountTypes)
+  }
 }
 
 const openBulkEditSelected = () => {
@@ -1903,7 +1927,7 @@ const openBulkEditSelected = () => {
 const openBulkEditFiltered = async () => {
   const filters = buildBulkEditFilterSnapshot()
   const preview = await adminAPI.accounts.list(1, 100, filters)
-  const { selectedPlatforms, selectedTypes } = collectSelectionMetadata(preview.items)
+  const { selectedPlatforms, selectedTypes } = collectFilteredTargetMetadata(preview.items, preview.total, filters)
   bulkEditTarget.value = {
     mode: 'filtered',
     filters,

@@ -192,9 +192,9 @@ func ProvideUsageCleanupService(repo UsageCleanupRepository, timingWheel *Timing
 }
 
 // ProvideAccountExpiryService creates and starts AccountExpiryService.
-func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpiryService {
+func ProvideAccountExpiryService(accountRepo AccountRepository, cfg *config.Config) *AccountExpiryService {
 	svc := NewAccountExpiryService(accountRepo, time.Minute)
-	if backgroundWorkersDisabled(nil) {
+	if backgroundWorkersDisabled(cfg) {
 		logger.LegacyPrintf("service.account_expiry", "[AccountExpiry] background worker disabled by dev config")
 	} else {
 		svc.Start()
@@ -203,9 +203,9 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 }
 
 // ProvideProxyExpiryService creates and starts ProxyExpiryService.
-func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
+func ProvideProxyExpiryService(proxyRepo ProxyRepository, cfg *config.Config) *ProxyExpiryService {
 	svc := NewProxyExpiryService(proxyRepo, time.Minute)
-	if backgroundWorkersDisabled(nil) {
+	if backgroundWorkersDisabled(cfg) {
 		logger.LegacyPrintf("service.proxy_expiry", "[ProxyExpiry] background worker disabled by dev config")
 	} else {
 		svc.Start()
@@ -214,12 +214,12 @@ func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
 }
 
 // ProvideSubscriptionExpiryService creates and starts SubscriptionExpiryService.
-func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService, lockCache LeaderLockCache, db *sql.DB) *SubscriptionExpiryService {
+func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService, lockCache LeaderLockCache, db *sql.DB, cfg *config.Config) *SubscriptionExpiryService {
 	svc := NewSubscriptionExpiryService(userSubRepo, time.Minute)
 	svc.SetSettingRepository(settingRepo)
 	svc.SetNotificationEmailService(notificationEmailService)
 	svc.SetLeaderLock(lockCache, db)
-	if backgroundWorkersDisabled(nil) {
+	if backgroundWorkersDisabled(cfg) {
 		logger.LegacyPrintf("service.subscription_expiry", "[SubscriptionExpiry] background worker disabled by dev config")
 	} else {
 		svc.Start()
@@ -693,10 +693,10 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 }
 
 // ProvidePaymentOrderExpiryService creates and starts PaymentOrderExpiryService.
-func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache LeaderLockCache, db *sql.DB) *PaymentOrderExpiryService {
+func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache LeaderLockCache, db *sql.DB, cfg *config.Config) *PaymentOrderExpiryService {
 	svc := NewPaymentOrderExpiryService(paymentSvc, 60*time.Second)
 	svc.SetLeaderLock(lockCache, db)
-	if backgroundWorkersDisabled(nil) {
+	if backgroundWorkersDisabled(cfg) {
 		logger.LegacyPrintf("service.payment_order_expiry", "[PaymentOrderExpiry] background worker disabled by dev config")
 	} else {
 		svc.Start()
@@ -741,9 +741,9 @@ func ProvideChannelMonitorService(
 // 通过 SetScheduler 注入回 service 后再 Start，确保启动时加载所有 enabled monitor，
 // 后续 CRUD 也能即时同步任务表。Runner.Stop 由 cleanup function 调用。
 // settingService 用于 runner 每次 fire 读取功能开关。
-func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *SettingService) *ChannelMonitorRunner {
+func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *SettingService, cfg *config.Config) *ChannelMonitorRunner {
 	r := NewChannelMonitorRunner(svc, settingService)
-	if backgroundWorkersDisabled(nil) {
+	if backgroundWorkersDisabled(cfg) {
 		logger.LegacyPrintf("service.channel_monitor_runner", "[ChannelMonitorRunner] background worker disabled by dev config")
 		return r
 	}

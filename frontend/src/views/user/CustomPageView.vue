@@ -107,6 +107,8 @@
           <iframe
             :src="embeddedUrl"
             class="custom-embed-frame"
+            sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+            referrerpolicy="strict-origin-when-cross-origin"
             allowfullscreen
           ></iframe>
         </div>
@@ -148,6 +150,8 @@ const tocItems = ref<TocItem[]>([])
 const tocVisible = ref(typeof window !== 'undefined' ? window.innerWidth > 768 : true)
 const activeHeadingId = ref('')
 let themeObserver: MutationObserver | null = null
+const EMBEDDED_IFRAME_SANDBOX = 'allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts'
+const EMBEDDED_IFRAME_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 const menuItemId = computed(() => route.params.id as string)
 
@@ -177,7 +181,6 @@ const embeddedUrl = computed(() => {
   return buildEmbeddedUrl(
     menuItem.value.url,
     authStore.user?.id,
-    authStore.token,
     pageTheme.value,
     locale.value,
   )
@@ -220,6 +223,16 @@ function buildPageImageUrl(slug: string, src: string): string {
   return `/api/v1/pages/${encodeURIComponent(slug)}/images/${encodedPath}${suffix}`
 }
 
+function applyIframeSafetyAttributes(html: string): string {
+  if (typeof DOMParser === 'undefined' || !html.includes('<iframe')) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  doc.querySelectorAll('iframe').forEach((iframe) => {
+    iframe.setAttribute('sandbox', EMBEDDED_IFRAME_SANDBOX)
+    iframe.setAttribute('referrerpolicy', EMBEDDED_IFRAME_REFERRER_POLICY)
+  })
+  return doc.body.innerHTML
+}
+
 async function fetchAndRenderMarkdown(slug: string) {
   loading.value = true
   tocItems.value = []
@@ -242,13 +255,14 @@ async function fetchAndRenderMarkdown(slug: string) {
     const html = marked.parse(raw) as string
     const sanitized = DOMPurify.sanitize(html, {
       ADD_TAGS: ['iframe'],
-      ADD_ATTR: ['allowfullscreen', 'frameborder', 'src'],
+      ADD_ATTR: ['allowfullscreen', 'frameborder', 'src', 'sandbox', 'referrerpolicy'],
     })
+    const safeHtml = applyIframeSafetyAttributes(sanitized)
 
     // Inject IDs into headings and build TOC
     const toc: TocItem[] = []
     let headingIndex = 0
-    const withIds = sanitized.replace(
+    const withIds = safeHtml.replace(
       /<(h[1-4])[^>]*>(.*?)<\/h[1-4]>/gi,
       (_, tag: string, content: string) => {
         const level = parseInt(tag[1])

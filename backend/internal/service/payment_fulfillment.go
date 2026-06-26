@@ -303,9 +303,19 @@ func (s *PaymentService) doBalance(ctx context.Context, o *dbent.PaymentOrder) e
 
 func (s *PaymentService) markCompleted(ctx context.Context, o *dbent.PaymentOrder, auditAction string) error {
 	now := time.Now()
-	_, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusRecharging)).SetStatus(OrderStatusCompleted).SetCompletedAt(now).Save(ctx)
+	affected, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusRecharging)).SetStatus(OrderStatusCompleted).SetCompletedAt(now).Save(ctx)
 	if err != nil {
 		return fmt.Errorf("mark completed: %w", err)
+	}
+	if affected == 0 {
+		current, getErr := s.entClient.PaymentOrder.Get(ctx, o.ID)
+		if getErr != nil {
+			return fmt.Errorf("reload order after mark completed affected zero rows: %w", getErr)
+		}
+		if current.Status == OrderStatusCompleted {
+			return nil
+		}
+		return fmt.Errorf("mark completed skipped: order %d is %s", o.ID, current.Status)
 	}
 	s.writeAuditLog(ctx, o.ID, auditAction, "system", map[string]any{
 		"rechargeCode":   o.RechargeCode,

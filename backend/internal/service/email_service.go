@@ -365,6 +365,7 @@ func (s *EmailService) SendVerifyCode(ctx context.Context, email, siteName strin
 			return nil
 		}
 		if !shouldFallbackNotificationEmail(err) {
+			s.deleteVerificationCodeAfterSendFailure(ctx, email)
 			return err
 		}
 		slog.Warn("failed to send templated verification email, falling back to legacy template", "recipient_hash", notificationEmailHash(email), "error", err)
@@ -376,10 +377,20 @@ func (s *EmailService) SendVerifyCode(ctx context.Context, email, siteName strin
 
 	// 发送邮件
 	if err := s.SendEmail(ctx, email, subject, body); err != nil {
+		s.deleteVerificationCodeAfterSendFailure(ctx, email)
 		return fmt.Errorf("send email: %w", err)
 	}
 
 	return nil
+}
+
+func (s *EmailService) deleteVerificationCodeAfterSendFailure(ctx context.Context, email string) {
+	if s == nil || s.cache == nil {
+		return
+	}
+	if deleteErr := s.cache.DeleteVerificationCode(ctx, email); deleteErr != nil {
+		slog.Error("failed to delete verification code after email send failure", "email", email, "error", deleteErr)
+	}
 }
 
 // VerifyCode 验证验证码

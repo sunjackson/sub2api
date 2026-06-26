@@ -29,8 +29,11 @@
         </template>
         <!-- Tab content (select phase) -->
         <template v-else>
+          <div v-if="tabs.length === 0" class="card py-16 text-center">
+            <p class="text-gray-500 dark:text-gray-400">{{ t('payment.notAvailable') }}</p>
+          </div>
           <!-- Top-up Tab -->
-          <template v-if="activeTab === 'recharge'">
+          <template v-else-if="activeTab === 'recharge'">
             <!-- Recharge Account Card -->
             <div class="card p-5">
               <p class="text-xs font-medium text-gray-400 dark:text-gray-500">{{ t('payment.rechargeAccount') }}</p>
@@ -484,7 +487,6 @@ const checkout = ref<CheckoutInfoResponse>({
 const tabs = computed(() => {
   const result: { key: 'recharge' | 'subscription'; label: string }[] = []
   if (!checkout.value.balance_disabled) result.push({ key: 'recharge', label: t('payment.tabTopUp') })
-  result.push({ key: 'subscription', label: t('payment.tabSubscribe') })
   return result
 })
 
@@ -987,11 +989,13 @@ async function resumeWechatPaymentFromQuery() {
   }
 
   selectedMethod.value = resume.paymentType
+  if (resume.orderType === 'subscription') {
+    await router.replace({ path: route.path, query: stripWechatResumeQuery(route.query) })
+    return
+  }
+
   if (resume.orderType === 'balance' && resume.orderAmount > 0) {
     amount.value = resume.orderAmount
-  }
-  if (resume.orderType === 'subscription' && resume.planId) {
-    selectedPlan.value = checkout.value.plans.find(plan => plan.id === resume.planId) ?? null
   }
 
   await router.replace({ path: route.path, query: stripWechatResumeQuery(route.query) })
@@ -1052,23 +1056,7 @@ onMounted(async () => {
       }
     }
     await resumeWechatPaymentFromQuery()
-    if (checkout.value.balance_disabled) {
-      activeTab.value = 'subscription'
-    }
-    // Handle renewal navigation: ?tab=subscription&group=123
-    if (route.query.tab === 'subscription') {
-      activeTab.value = 'subscription'
-      if (route.query.group) {
-        const groupId = Number(route.query.group)
-        const groupPlans = checkout.value.plans.filter(p => p.group_id === groupId)
-        if (groupPlans.length === 1) {
-          selectedPlan.value = groupPlans[0]
-        } else if (groupPlans.length > 1) {
-          renewGroupId.value = groupId
-          showRenewalModal.value = true
-        }
-      }
-    }
+    // Monthly subscription package sales are no longer exposed from the recharge page.
   } catch (err: unknown) { appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error'))) }
   finally { loading.value = false }
   // Fetch active subscriptions (uses cache, non-blocking)

@@ -387,7 +387,8 @@ describe('LinuxDoCallbackView', () => {
       token: '',
       token_field: 'pending_oauth_token',
       provider: 'linuxdo',
-      redirect: '/welcome'
+      redirect: '/welcome',
+      aff_code: undefined
     })
   })
 

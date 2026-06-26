@@ -199,6 +199,7 @@ type PendingAuthSessionSummary = {
   token_field: PendingAuthTokenField
   provider: string
   redirect?: string
+  aff_code?: string
 }
 type PendingOAuthCreateAccountResponse = {
   auth_result?: string
@@ -267,7 +268,7 @@ onMounted(async () => {
       initialTurnstileToken.value = registerData.turnstile_token || ''
       promoCode.value = registerData.promo_code || ''
       invitationCode.value = registerData.invitation_code || ''
-      affCode.value = registerData.aff_code || loadAffiliateReferralCode()
+      affCode.value = registerData.aff_code || activePendingSession?.aff_code || loadAffiliateReferralCode()
       pendingAuthToken.value = registerData.pending_auth_token || activePendingSession?.token || ''
       pendingAuthTokenField.value = registerData.pending_auth_token_field || activePendingSession?.token_field || 'pending_auth_token'
       pendingProvider.value = registerData.pending_provider || activePendingSession?.provider || ''
@@ -287,6 +288,7 @@ onMounted(async () => {
     pendingAuthTokenField.value = activePendingSession.token_field
     pendingProvider.value = activePendingSession.provider
     pendingRedirect.value = activePendingSession.redirect || ''
+    affCode.value = activePendingSession.aff_code || loadAffiliateReferralCode()
   }
 
   // Load public settings
@@ -390,6 +392,7 @@ function persistPendingOAuthSession(provider: string, redirect?: string): void {
     token_field: pendingAuthTokenField.value,
     provider: provider.trim() || pendingProvider.value.trim(),
     redirect: redirect || pendingRedirect.value || undefined,
+    aff_code: affCode.value || loadAffiliateReferralCode() || undefined,
   })
 }
 

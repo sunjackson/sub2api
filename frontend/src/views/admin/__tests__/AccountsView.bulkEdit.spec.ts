@@ -89,7 +89,16 @@ const AccountBulkActionsBarStub = {
 
 const BulkEditAccountModalStub = {
   props: ['show', 'target'],
-  template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
+  template: `
+    <div
+      data-test="bulk-edit-modal"
+      :data-show="String(show)"
+      :data-target-mode="target?.mode ?? ''"
+      :data-preview-count="String(target?.previewCount ?? '')"
+      :data-platforms="target?.selectedPlatforms?.join(',') ?? ''"
+      :data-types="target?.selectedTypes?.join(',') ?? ''"
+    ></div>
+  `
 }
 
 const ConfirmDialogStub = {
@@ -168,6 +177,88 @@ describe('admin AccountsView bulk edit scope', () => {
 
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-show')).toBe('true')
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
+  })
+
+  it('does not infer filtered bulk edit platform and type from an incomplete preview', async () => {
+    const previewItems = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      name: `openai-${index + 1}`,
+      platform: 'openai',
+      type: 'oauth',
+      status: 'active',
+      schedulable: true,
+      created_at: '2026-03-07T10:00:00Z',
+      updated_at: '2026-03-07T10:00:00Z'
+    }))
+
+    listAccounts
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 20,
+        pages: 0
+      })
+      .mockResolvedValueOnce({
+        items: previewItems,
+        total: 150,
+        page: 1,
+        page_size: 100,
+        pages: 2
+      })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: ConfirmDialogStub,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-test="edit-filtered"]').trigger('click')
+    await flushPromises()
+
+    const modal = wrapper.get('[data-test="bulk-edit-modal"]')
+    expect(modal.attributes('data-show')).toBe('true')
+    expect(modal.attributes('data-target-mode')).toBe('filtered')
+    expect(modal.attributes('data-preview-count')).toBe('150')
+    expect(modal.attributes('data-platforms')).toBe('')
+    expect(modal.attributes('data-types')).toBe('')
+    expect(listAccounts).toHaveBeenLastCalledWith(
+      1,
+      100,
+      expect.objectContaining({ platform: '', type: '' })
+    )
   })
 
   it('renders the created_at column by default', async () => {

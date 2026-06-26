@@ -46,6 +46,8 @@ type paymentFulfillmentAffiliateAccrueCall struct {
 	amount        float64
 	freezeHours   int
 	sourceOrderID *int64
+	sourceRef     string
+	sourceAmount  *float64
 }
 
 type paymentFulfillmentAffiliateRepoStub struct {
@@ -75,11 +77,20 @@ func (r *paymentFulfillmentAffiliateRepoStub) BindInviter(context.Context, int64
 	panic("unexpected BindInviter call")
 }
 
-func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error) {
+func (r *paymentFulfillmentAffiliateRepoStub) GrantRegistrationReward(context.Context, int64, int64, float64) (bool, error) {
+	panic("unexpected GrantRegistrationReward call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64, sourceRef string, sourceAmount *float64) (bool, error) {
 	var sourceCopy *int64
 	if sourceOrderID != nil {
 		v := *sourceOrderID
 		sourceCopy = &v
+	}
+	var sourceAmountCopy *float64
+	if sourceAmount != nil {
+		v := *sourceAmount
+		sourceAmountCopy = &v
 	}
 	r.accrueCalls = append(r.accrueCalls, paymentFulfillmentAffiliateAccrueCall{
 		inviterID:     inviterID,
@@ -87,6 +98,8 @@ func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inv
 		amount:        amount,
 		freezeHours:   freezeHours,
 		sourceOrderID: sourceCopy,
+		sourceRef:     sourceRef,
+		sourceAmount:  sourceAmountCopy,
 	})
 	return true, nil
 }
@@ -105,6 +118,10 @@ func (r *paymentFulfillmentAffiliateRepoStub) TransferQuotaToBalance(context.Con
 
 func (r *paymentFulfillmentAffiliateRepoStub) ListInvitees(context.Context, int64, int) ([]AffiliateInvitee, error) {
 	panic("unexpected ListInvitees call")
+}
+
+func (r *paymentFulfillmentAffiliateRepoStub) SumRegistrationRewards(context.Context, int64) (float64, error) {
+	panic("unexpected SumRegistrationRewards call")
 }
 
 func (r *paymentFulfillmentAffiliateRepoStub) UpdateUserAffCode(context.Context, int64, string) error {

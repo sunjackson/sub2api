@@ -321,7 +321,7 @@ describe('PaymentView WeChat JSAPI flow', () => {
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
   })
 
-  it('keeps subscription resume context for token-only WeChat callbacks', async () => {
+  it('ignores legacy subscription resume callbacks after subscription packages are removed', async () => {
     routeState.query = {
       wechat_resume: '1',
       wechat_resume_token: 'resume-subscription-7',
@@ -331,16 +331,6 @@ describe('PaymentView WeChat JSAPI flow', () => {
     }
     getCheckoutInfo.mockResolvedValue(checkoutInfoWithPlansFixture())
     createOrder.mockResolvedValue(oauthOrderFixture())
-
-    const originalLocation = window.location
-    const locationState = {
-      href: 'http://localhost/purchase',
-      origin: 'http://localhost',
-    }
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: locationState,
-    })
 
     shallowMount(PaymentView, {
       global: {
@@ -354,21 +344,28 @@ describe('PaymentView WeChat JSAPI flow', () => {
     await flushPromises()
 
     expect(routerReplace).toHaveBeenCalledWith({ path: '/purchase', query: {} })
-    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({
-      payment_type: 'wxpay',
-      order_type: 'subscription',
-      plan_id: 7,
-      wechat_resume_token: 'resume-subscription-7',
-    }))
-    expect(locationState.href).toContain('/api/v1/auth/oauth/wechat/payment/start?')
-    expect(new URL(locationState.href, 'http://localhost').searchParams.get('redirect')).toBe(
-      '/purchase?from=wechat&payment_type=wxpay&order_type=subscription&plan_id=7',
-    )
+    expect(createOrder).not.toHaveBeenCalled()
+  })
 
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: originalLocation,
+
+  it('does not expose the subscription package tab even when checkout returns plans', async () => {
+    routeState.query = {}
+    getCheckoutInfo.mockResolvedValue(checkoutInfoWithPlansFixture())
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          Teleport: true,
+          Transition: false,
+        },
+      },
     })
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('payment.tabSubscribe')
+    expect(wrapper.html()).not.toContain('subscription-plan-card-stub')
+    expect(createOrder).not.toHaveBeenCalled()
   })
 
   it('falls back to QR flow when mobile WeChat payment is unavailable', async () => {

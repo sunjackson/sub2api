@@ -147,6 +147,35 @@ func (r *affiliateRewardRepoStub) GrantRegistrationReward(ctx context.Context, i
 	return r.applied, nil
 }
 
+type affiliateDetailRepoStub struct {
+	AffiliateRepository
+}
+
+func (r *affiliateDetailRepoStub) ThawFrozenQuota(context.Context, int64) (float64, error) {
+	return 0, nil
+}
+
+func (r *affiliateDetailRepoStub) EnsureUserAffiliate(context.Context, int64) (*AffiliateSummary, error) {
+	return &AffiliateSummary{
+		UserID:          101,
+		AffCode:         "AFF101",
+		AffCount:        150,
+		AffQuota:        2,
+		AffFrozenQuota:  1,
+		AffHistoryQuota: 3,
+	}, nil
+}
+
+func (r *affiliateDetailRepoStub) ListInvitees(context.Context, int64, int) ([]AffiliateInvitee, error) {
+	return []AffiliateInvitee{
+		{UserID: 202, Email: "invitee@example.com", Username: "invitee", RegistrationRewardTotal: 1, QuotaRebateTotal: 3, TotalRebate: 4},
+	}, nil
+}
+
+func (r *affiliateDetailRepoStub) SumRegistrationRewards(context.Context, int64) (float64, error) {
+	return 150, nil
+}
+
 type affiliateRewardAuthInvalidator struct {
 	userIDs []int64
 }
@@ -191,4 +220,17 @@ func TestGrantRegistrationRewardIfConfiguredInvalidatesCaches(t *testing.T) {
 	require.InDelta(t, 2.5, repo.amount, 1e-9)
 	require.Equal(t, []int64{101}, authInvalidator.userIDs)
 	require.Equal(t, []int64{101}, billingCache.invalidatedUserIDs)
+}
+
+func TestGetAffiliateDetailUsesLedgerWideRegistrationRewardTotal(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAffiliateService(&affiliateDetailRepoStub{}, nil, nil, nil)
+	detail, err := svc.GetAffiliateDetail(context.Background(), 101)
+	require.NoError(t, err)
+
+	require.InDelta(t, 150, detail.RegistrationRewardTotal, 1e-9)
+	require.InDelta(t, 153, detail.TotalReward, 1e-9)
+	require.Len(t, detail.Invitees, 1)
+	require.InDelta(t, 1, detail.Invitees[0].RegistrationRewardTotal, 1e-9)
 }

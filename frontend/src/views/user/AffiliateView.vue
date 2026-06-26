@@ -8,7 +8,7 @@
       </div>
 
       <template v-else-if="detail">
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div class="card p-5">
             <p class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-dark-400">
               <Icon name="dollar" size="sm" class="text-primary-500" />
@@ -34,9 +34,18 @@
             </p>
           </div>
           <div class="card p-5">
-            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.stats.totalQuota') }}</p>
+            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.stats.registrationReward') }}</p>
+            <p class="mt-2 text-2xl font-semibold text-sky-600 dark:text-sky-400">
+              {{ formatCurrency(detail.registration_reward_total) }}
+            </p>
+            <p class="mt-1 text-xs text-gray-400 dark:text-dark-500">
+              {{ t('affiliate.stats.registrationRewardHint') }}
+            </p>
+          </div>
+          <div class="card p-5">
+            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.stats.totalReward') }}</p>
             <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-              {{ formatCurrency(detail.aff_history_quota) }}
+              {{ formatCurrency(detail.total_reward) }}
             </p>
             <p v-if="detail.aff_frozen_quota > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
               {{ t('affiliate.stats.frozenQuota') }}: {{ formatCurrency(detail.aff_frozen_quota) }}
@@ -110,12 +119,14 @@
             {{ t('affiliate.invitees.empty') }}
           </div>
           <div v-else class="mt-4 overflow-x-auto">
-            <table class="w-full min-w-[560px] text-left text-sm">
+            <table class="w-full min-w-[760px] text-left text-sm">
               <thead>
                 <tr class="border-b border-gray-200 text-gray-500 dark:border-dark-700 dark:text-dark-400">
                   <th class="px-3 py-2 font-medium">{{ t('affiliate.invitees.columns.email') }}</th>
                   <th class="px-3 py-2 font-medium">{{ t('affiliate.invitees.columns.username') }}</th>
-                  <th class="px-3 py-2 font-medium text-right">{{ t('affiliate.invitees.columns.rebate') }}</th>
+                  <th class="px-3 py-2 font-medium text-right">{{ t('affiliate.invitees.columns.registrationReward') }}</th>
+                  <th class="px-3 py-2 font-medium text-right">{{ t('affiliate.invitees.columns.quotaRebate') }}</th>
+                  <th class="px-3 py-2 font-medium text-right">{{ t('affiliate.invitees.columns.totalReward') }}</th>
                   <th class="px-3 py-2 font-medium">{{ t('affiliate.invitees.columns.joinedAt') }}</th>
                 </tr>
               </thead>
@@ -127,7 +138,9 @@
                 >
                   <td class="px-3 py-3 text-gray-900 dark:text-white">{{ item.email || '-' }}</td>
                   <td class="px-3 py-3 text-gray-700 dark:text-gray-300">{{ item.username || '-' }}</td>
-                  <td class="px-3 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400">{{ formatCurrency(item.total_rebate) }}</td>
+                  <td class="px-3 py-3 text-right font-medium text-sky-600 dark:text-sky-400">{{ formatCurrency(item.registration_reward_total) }}</td>
+                  <td class="px-3 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400">{{ formatCurrency(item.quota_rebate_total) }}</td>
+                  <td class="px-3 py-3 text-right font-medium text-gray-900 dark:text-white">{{ formatCurrency(item.total_rebate) }}</td>
                   <td class="px-3 py-3 text-gray-700 dark:text-gray-300">{{ formatDateTime(item.created_at) || '-' }}</td>
                 </tr>
               </tbody>

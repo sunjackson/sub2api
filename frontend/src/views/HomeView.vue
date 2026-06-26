@@ -6,6 +6,8 @@
       v-if="isHomeContentUrl"
       :src="homeContent.trim()"
       class="h-screen w-full border-0"
+      sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+      referrerpolicy="strict-origin-when-cross-origin"
       allowfullscreen
     ></iframe>
     <!-- HTML mode - SECURITY: homeContent is admin-only setting, XSS risk is acceptable -->

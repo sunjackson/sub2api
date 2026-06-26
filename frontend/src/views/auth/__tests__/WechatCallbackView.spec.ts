@@ -732,6 +732,7 @@ describe('WechatCallbackView', () => {
       token_field: 'pending_oauth_token',
       provider: 'wechat',
       redirect: '/welcome',
+      aff_code: undefined,
     })
   })
 
